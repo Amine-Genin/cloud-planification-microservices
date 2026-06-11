@@ -1,0 +1,1248 @@
+
+================================================================================
+  RAPPORT GÉNÉRAL — PROJET 2 : PLANIFICATION & LOGISTIQUE ACADÉMIQUE
+  Université Mohammed Premier (UMP) — Oujda, Maroc
+  Master M2I — Cloud Computing — Semestre 2 — Année 2025/2026
+================================================================================
+
+  Dépôt GitHub : https://github.com/AyoubElKharraf/cloud-planification-microservices
+  Dossier local : projet2-planification/
+  Date          : juin 2026
+
+================================================================================
+  TABLE DES MATIÈRES
+================================================================================
+
+  1.  Objectif et contexte du projet
+  2.  Définitions des concepts clés (glossaire)
+  3.  Architecture globale — Vue d'ensemble
+  4.  Outils et technologies utilisés (avec justification)
+  5.  Structure du projet (fichiers importants)
+  6.  Service-catalogue       — Détail complet
+  7.  Service-locaux          — Détail complet
+  8.  Service-emploi-du-temps — Détail complet (orchestrateur)
+  9.  Communication inter-services (HTTP REST)
+  10. Modèle de données (bases MySQL)
+  11. Conteneurisation Docker et orchestration
+  12. Lancement, tests et validation
+  13. Problèmes rencontrés et solutions
+  14. Questions fréquentes — Réponses courtes (soutenance)
+  15. Déroulement recommandé de la démo
+
+================================================================================
+  1. OBJECTIF ET CONTEXTE DU PROJET
+================================================================================
+
+CONTEXTE :
+  L'Université Mohammed Premier (UMP) d'Oujda doit gérer chaque semestre
+  la planification de centaines de séances académiques (cours magistraux,
+  TD, TP) en répartissant les cours dans des salles disponibles sans conflit
+  horaire.
+
+PROBLÈME À RÉSOUDRE :
+  Comment construire un système backend distribué (microservices) capable de :
+    • Gérer le catalogue des cours (CRUD)
+    • Gérer les locaux/salles (CRUD + disponibilité)
+    • Planifier des séances en vérifiant automatiquement :
+        - que le cours existe
+        - que la salle est disponible
+        - qu'il n'y a pas de conflit horaire (même salle, même créneau)
+
+SOLUTION RETENUE :
+  Architecture microservices Jakarta EE 10 avec 3 services indépendants,
+  chacun dans son propre conteneur Docker avec sa propre base MySQL 8,
+  orchestrés par Docker Compose v2.
+
+================================================================================
+  2. DÉFINITIONS DES CONCEPTS CLÉS (GLOSSAIRE)
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+  MICROSERVICE
+────────────────────────────────────────────────────────────────────────────────
+  Un microservice est une application indépendante qui :
+    • implémente UNE responsabilité métier bien définie
+    • possède sa PROPRE base de données (pas de base partagée)
+    • expose une API REST HTTP pour communiquer avec les autres
+    • peut être déployé, mis à jour et mis à l'échelle INDÉPENDAMMENT
+
+  Avantage : si le service-catalogue tombe, service-locaux continue de
+  fonctionner. En monolithe, toute l'application s'arrête.
+
+  Dans ce projet :
+    service-catalogue      → gestion des cours  (responsabilité unique)
+    service-locaux         → gestion des salles  (responsabilité unique)
+    service-emploi-du-temps→ planification        (orchestrateur)
+
+────────────────────────────────────────────────────────────────────────────────
+  API REST (Representational State Transfer)
+────────────────────────────────────────────────────────────────────────────────
+  Style d'architecture pour les APIs web basé sur le protocole HTTP.
+
+  Verbes HTTP et leur sémantique REST :
+    GET    → Lecture    (sans effet de bord — idempotent)
+    POST   → Création   (retourne HTTP 201 Created)
+    PUT    → Mise à jour complète d'une ressource
+    PATCH  → Mise à jour PARTIELLE d'une ressource (un seul champ)
+    DELETE → Suppression (retourne HTTP 204 No Content si succès)
+
+  Codes HTTP utilisés dans ce projet :
+    200 OK          → opération GET réussie
+    201 Created     → ressource créée (POST)
+    204 No Content  → suppression réussie (DELETE)
+    400 Bad Request → données invalides ou ressource dépendante absente
+    404 Not Found   → ressource inexistante
+    409 Conflict    → conflit horaire (même salle, même créneau)
+    500 Internal    → erreur technique inattendue
+
+────────────────────────────────────────────────────────────────────────────────
+  JAKARTA EE 10
+────────────────────────────────────────────────────────────────────────────────
+  Plateforme Java standard pour les applications d'entreprise.
+  Anciennement "Java EE" (Java Enterprise Edition), renommé Jakarta EE.
+  Fournit des annotations et APIs standardisées pour :
+
+    JAX-RS  → API REST (@Path, @GET, @POST, @Produces, @Consumes)
+    JPA     → Persistance objet-relationnel (@Entity, @Id, @Column)
+    EJB     → Composants métier gérés (@Stateless, transactions automatiques)
+    CDI     → Injection de dépendances (@Inject, @ApplicationScoped)
+    JSON-P  → Parsing JSON (Json.createReader, JsonObject)
+    JSON-B  → Sérialisation/désérialisation JSON automatique
+
+────────────────────────────────────────────────────────────────────────────────
+  JPA (Java Persistence API)
+────────────────────────────────────────────────────────────────────────────────
+  Spécification Java pour le mapping objet-relationnel (ORM).
+  Hibernate est l'implémentation utilisée ici (fournie par WildFly).
+
+  Principe : les classes Java annotées @Entity correspondent à des tables SQL.
+  JPA génère automatiquement le SQL (SELECT, INSERT, UPDATE, DELETE).
+
+  Exemples dans ce projet :
+    @Entity → classe Java = table MySQL
+    @Id     → champ = clé primaire
+    @Column → champ = colonne SQL avec contraintes
+    @Enumerated(STRING) → stocke l'enum Java comme un VARCHAR en base
+
+────────────────────────────────────────────────────────────────────────────────
+  WILDFLY 27
+────────────────────────────────────────────────────────────────────────────────
+  Serveur d'applications open-source implémentant Jakarta EE 10.
+  Développé par Red Hat. Remplace JBoss AS.
+
+  Rôle dans ce projet :
+    • Déploie les fichiers .war (Web Application Resource)
+    • Gère les transactions JTA (Java Transaction API)
+    • Injecte les dépendances CDI
+    • Configure les datasources MySQL via CLI (entrypoint.sh)
+    • Écoute sur le port 8080 à l'intérieur du conteneur Docker
+
+────────────────────────────────────────────────────────────────────────────────
+  EJB STATELESS (@Stateless)
+────────────────────────────────────────────────────────────────────────────────
+  Enterprise Java Bean sans état. WildFly maintient un POOL d'instances.
+  Avantages :
+    • Transactions automatiques : la méthode EJB s'exécute dans une
+      transaction JTA. En cas d'exception → rollback automatique.
+    • Sans état : chaque requête peut utiliser n'importe quelle instance
+      du pool → scalabilité.
+
+  Utilisé pour : CoursService, CoursRepository, LocalService,
+                 LocalRepository, EmploiDuTempsService, SeanceRepository.
+
+────────────────────────────────────────────────────────────────────────────────
+  CDI (Contexts and Dependency Injection)
+────────────────────────────────────────────────────────────────────────────────
+  Mécanisme d'injection de dépendances standard Jakarta EE.
+  Principe IoC (Inversion of Control) : on n'instancie pas les objets
+  avec "new", on déclare @Inject et le conteneur fournit l'instance.
+
+  Exemples :
+    @Inject CoursRepository repo;    → WildFly injecte le Repository dans le Service
+    @Inject CoursService service;    → WildFly injecte le Service dans le Resource
+    @Inject CatalogueClient client;  → WildFly injecte le Client dans le Service
+
+  Avantage : couplage faible, testabilité, gestion du cycle de vie.
+
+────────────────────────────────────────────────────────────────────────────────
+  DOCKER ET CONTENEURISATION
+────────────────────────────────────────────────────────────────────────────────
+  Docker est une plateforme de conteneurisation.
+
+  Concepts clés :
+    Image     → "recette" d'un conteneur (Dockerfile)
+    Conteneur → instance en cours d'exécution d'une image
+    Volume    → stockage persistant (données MySQL survivent aux redémarrages)
+    Réseau    → réseau virtuel isolé entre conteneurs
+    Registry  → dépôt d'images (Docker Hub, etc.)
+
+  Dans ce projet : 6 conteneurs au total
+    service-catalogue    → WildFly + WAR catalogue
+    catalogue-db         → MySQL 8 avec catalogue_db
+    service-locaux       → WildFly + WAR locaux
+    locaux-db            → MySQL 8 avec locaux_db
+    service-emploi-du-temps → WildFly + WAR emploi
+    emploi-db            → MySQL 8 avec emploi_db
+
+────────────────────────────────────────────────────────────────────────────────
+  DOCKER COMPOSE
+────────────────────────────────────────────────────────────────────────────────
+  Outil pour définir et lancer des applications multi-conteneurs.
+  Fichier de configuration : compose.yaml (YAML).
+
+  Dans ce projet :
+    compose.yaml racine → fichier maître (include des 3 sous-fichiers)
+    service-*/compose.yaml → configuration de chaque paire (app + BDD)
+
+  Fonctionnalités utilisées :
+    depends_on    → order de démarrage (emploi attend catalogue + locaux healthy)
+    healthcheck   → vérification périodique de la santé du conteneur
+    networks      → réseau partagé planification-net (DNS interne Docker)
+    environment   → variables d'env (CATALOGUE_BASE_URL, LOCAUX_BASE_URL)
+    volumes       → persistance des données MySQL
+
+────────────────────────────────────────────────────────────────────────────────
+  PATTERN DATABASE PER SERVICE
+────────────────────────────────────────────────────────────────────────────────
+  Principe fondamental des microservices :
+  CHAQUE service possède sa PROPRE base de données.
+  Aucun service n'accède directement à la base d'un autre service.
+  La seule façon d'obtenir des données d'un autre service = appel API REST.
+
+  Avantages :
+    • Découplage total des données
+    • Chaque service peut choisir son propre type de BDD (MySQL, MongoDB...)
+    • Un service peut évoluer sans impacter le schéma des autres
+
+  Dans ce projet :
+    catalogue_db (MySQL) → propriété exclusive de service-catalogue
+    locaux_db    (MySQL) → propriété exclusive de service-locaux
+    emploi_db    (MySQL) → propriété exclusive de service-emploi-du-temps
+
+================================================================================
+  3. ARCHITECTURE GLOBALE — VUE D'ENSEMBLE
+================================================================================
+
+  [Client : Postman / curl / test.sh]
+        │
+        │  HTTP (ports exposés sur localhost)
+        │  8081 → Catalogue
+        │  8082 → Locaux
+        │  8083 → Emploi du temps
+        ↓
+  ┌─────────────────────── planification-net (réseau Docker bridge) ──────────────────┐
+  │                                                                                    │
+  │  ┌─────────────────┐   ┌─────────────────┐   ┌────────────────────────────┐      │
+  │  │ service-         │   │ service-         │   │ service-emploi-du-temps    │      │
+  │  │ catalogue        │   │ locaux           │   │                            │      │
+  │  │ WildFly :8080    │   │ WildFly :8080    │   │ WildFly :8080              │      │
+  │  │ (hôte :8081)     │   │ (hôte :8082)     │   │ (hôte :8083)               │      │
+  │  │                  │   │                  │   │                            │      │
+  │  │ /api/cours       │   │ /api/locaux      │   │ /api/emploi-du-temps       │      │
+  │  └────────┬─────────┘   └────────┬─────────┘   └──────────┬─────────────── ┘      │
+  │           │ JPA                  │ JPA                     │ JPA + HTTP clients    │
+  │           ↓                      ↓                         │                       │
+  │  ┌────────────────┐   ┌────────────────┐                   │                       │
+  │  │ catalogue-db   │   │ locaux-db      │       ┌───────────┴──────────────┐        │
+  │  │ MySQL 8.0      │   │ MySQL 8.0      │       │ CatalogueClient          │        │
+  │  │ catalogue_db   │   │ locaux_db      │       │   GET /api/cours/{id}    │──────▶ │
+  │  │ (10 cours)     │   │ (10 locaux)    │       │                          │        │
+  │  └────────────────┘   └────────────────┘       │ LocalClient              │        │
+  │                                                 │   GET /api/locaux/dispo  │──────▶ │
+  │                                                 │   PATCH disponibilite    │──────▶ │
+  │                                                 └───────────┬──────────────┘        │
+  │                                                             │ JPA                   │
+  │                                                             ↓                       │
+  │                                                  ┌─────────────────┐               │
+  │                                                  │ emploi-db       │               │
+  │                                                  │ MySQL 8.0       │               │
+  │                                                  │ emploi_db       │               │
+  │                                                  │ (séances)       │               │
+  │                                                  └─────────────────┘               │
+  └────────────────────────────────────────────────────────────────────────────────────┘
+
+  RÈGLE DE COMMUNICATION :
+    • service-catalogue et service-locaux sont AUTONOMES (n'appellent personne)
+    • service-emploi-du-temps est l'ORCHESTRATEUR (appelle les deux autres)
+    • Le couplage est UNIDIRECTIONNEL : emploi → catalogue / emploi → locaux
+
+================================================================================
+  4. OUTILS ET TECHNOLOGIES UTILISÉS (avec justification)
+================================================================================
+
+  ┌──────────────────────────┬────────────────────────────────────────────────────┐
+  │ Outil / Technologie      │ Rôle et justification                              │
+  ├──────────────────────────┼────────────────────────────────────────────────────┤
+  │ Java 17 (LTS)            │ Langage principal. LTS = Long Term Support.        │
+  │                          │ Java 17 apporte les records, sealed classes,       │
+  │                          │ pattern matching. Version stable pour production.  │
+  ├──────────────────────────┼────────────────────────────────────────────────────┤
+  │ Jakarta EE 10            │ API entreprise standard. Fournit JPA, JAX-RS, EJB,│
+  │                          │ CDI, JSON-P, JSON-B. Standardisé → portable sur   │
+  │                          │ tout serveur Jakarta EE (WildFly, Payara, GlassFish│
+  ├──────────────────────────┼────────────────────────────────────────────────────┤
+  │ WildFly 27               │ Serveur d'applications implémentant Jakarta EE 10. │
+  │                          │ Choisi pour sa conformité complète à la spec EE.  │
+  │                          │ Gère transactions, injection, déploiement WAR.    │
+  ├──────────────────────────┼────────────────────────────────────────────────────┤
+  │ Maven 3.9                │ Outil de build Java. Gère dépendances (pom.xml),   │
+  │                          │ compile le code, produit le WAR déployable.        │
+  │                          │ Utilisé dans le Dockerfile : "mvn clean package". │
+  ├──────────────────────────┼────────────────────────────────────────────────────┤
+  │ MySQL 8.0                │ SGBD relationnel open-source. Un serveur MySQL par  │
+  │                          │ service (principe database per service).           │
+  │                          │ init.sql → données initiales au 1er démarrage.    │
+  ├──────────────────────────┼────────────────────────────────────────────────────┤
+  │ Hibernate / JPA          │ ORM : Object-Relational Mapping. Hibernate est     │
+  │                          │ l'implémentation JPA incluse dans WildFly.        │
+  │                          │ Génère les tables SQL depuis les classes @Entity. │
+  ├──────────────────────────┼────────────────────────────────────────────────────┤
+  │ JAX-RS (REST)            │ API Java standard pour les services REST HTTP.    │
+  │                          │ @Path, @GET, @POST, @PUT, @DELETE, @PATCH.        │
+  │                          │ Sérialisation JSON automatique (JSON-B / Yasson). │
+  ├──────────────────────────┼────────────────────────────────────────────────────┤
+  │ HttpClient (Java 11)     │ Client HTTP natif Java pour appels inter-services. │
+  │                          │ Utilisé dans CatalogueClient et LocalClient.      │
+  │                          │ Pas de dépendance externe (Feign, RestTemplate). │
+  ├──────────────────────────┼────────────────────────────────────────────────────┤
+  │ Docker                   │ Conteneurisation : chaque service dans son image.  │
+  │                          │ Dockerfile multi-étapes : build Maven + WildFly.  │
+  │                          │ Garantit reproductibilité (fonctionne partout).   │
+  ├──────────────────────────┼────────────────────────────────────────────────────┤
+  │ Docker Compose v2        │ Lance les 6 conteneurs avec "docker compose up".  │
+  │                          │ Gère réseau, dépendances, healthchecks, volumes.  │
+  ├──────────────────────────┼────────────────────────────────────────────────────┤
+  │ curl                     │ Outil CLI pour envoyer des requêtes HTTP.          │
+  │                          │ Utilisé dans test.sh pour valider les réponses.   │
+  ├──────────────────────────┼────────────────────────────────────────────────────┤
+  │ Postman                  │ Interface graphique pour tester les APIs REST.     │
+  │                          │ Collection importable : postman_collection.json.  │
+  ├──────────────────────────┼────────────────────────────────────────────────────┤
+  │ test.sh                  │ Script bash de 14 tests d'intégration automatisés. │
+  │                          │ Valide le scénario complet bout-en-bout.          │
+  ├──────────────────────────┼────────────────────────────────────────────────────┤
+  │ Git / GitHub             │ Versionnement et sauvegarde du code source.       │
+  │                          │ Dépôt public : github.com/AyoubElKharraf/...     │
+  └──────────────────────────┴────────────────────────────────────────────────────┘
+
+================================================================================
+  5. STRUCTURE DU PROJET (FICHIERS IMPORTANTS)
+================================================================================
+
+  projet2-planification/
+  │
+  ├── compose.yaml                     ← Fichier MAÎTRE d'orchestration Docker
+  │                                      (include les 3 compose des services)
+  │                                      Définit réseau planification-net
+  │                                      et les healthchecks
+  │
+  ├── test.sh                          ← Script bash : 14 tests automatisés curl
+  ├── postman_collection.json          ← Collection Postman (3 dossiers : catalogue/
+  │                                      locaux/emploi-du-temps)
+  ├── README.md                        ← Documentation principale
+  ├── RAPPORT_GENERAL.txt              ← Ce rapport
+  │
+  ├── service-catalogue/
+  │   ├── compose.yaml                 ← Config Docker : service-catalogue + catalogue-db
+  │   ├── Dockerfile                   ← Image multi-étapes : Maven build + WildFly deploy
+  │   ├── init.sql                     ← Création table cours + 10 cours initiaux
+  │   ├── .dockerignore
+  │   ├── pom.xml                      ← Dépendances Maven (Jakarta EE, etc.)
+  │   └── src/main/
+  │       ├── java/ma/ump/catalogue/
+  │       │   ├── entity/
+  │       │   │   └── Cours.java       ← @Entity JPA (table cours)
+  │       │   ├── repository/
+  │       │   │   └── CoursRepository.java ← Accès BDD (JPQL, findAll, findById...)
+  │       │   ├── service/
+  │       │   │   └── CoursService.java    ← Logique métier (validation, unicité)
+  │       │   └── rest/
+  │       │       ├── CoursResource.java   ← Endpoints REST JAX-RS
+  │       │       └── ApplicationConfig.java ← Config JAX-RS (chemin /api)
+  │       ├── resources/META-INF/
+  │       │   └── persistence.xml      ← Unité de persistance JPA (cataloguePU)
+  │       └── webapp/WEB-INF/
+  │           ├── beans.xml            ← Active CDI
+  │           └── jboss-web.xml        ← Context root WildFly = "/"
+  │
+  ├── service-locaux/
+  │   ├── (structure identique à service-catalogue)
+  │   └── src/main/java/ma/ump/locaux/
+  │       ├── entity/
+  │       │   ├── Local.java           ← @Entity (table locaux) avec équipements
+  │       │   ├── TypeLocal.java       ← Enum : AMPHI, SALLE_COURS, SALLE_TP, LABO
+  │       │   └── DisponibiliteLocal.java ← Enum : DISPONIBLE, OCCUPE, EN_MAINTENANCE
+  │       ├── repository/
+  │       │   └── LocalRepository.java ← findDisponibles, findByType, CRUD
+  │       ├── service/
+  │       │   └── LocalService.java    ← Logique : validation, disponibilité
+  │       └── rest/
+  │           └── LocalResource.java  ← Endpoints + PATCH /disponibilite
+  │
+  └── service-emploi-du-temps/
+      ├── (structure similaire + dossiers client/ et util/)
+      └── src/main/java/ma/ump/emploidutemps/
+          ├── entity/
+          │   ├── Seance.java          ← @Entity (table seances) : coursId, localId, horaire
+          │   ├── JourSemaine.java     ← Enum : LUNDI à SAMEDI
+          │   └── TypeSeance.java      ← Enum : COURS_MAGISTRAL, TP, TD
+          ├── repository/
+          │   └── SeanceRepository.java  ← existeConflit() = détection chevauchement
+          ├── service/
+          │   └── EmploiDuTempsService.java ← Orchestrateur : flux planification 5 étapes
+          ├── rest/
+          │   └── EmploiDuTempsResource.java ← Endpoints : GET, POST, DELETE
+          ├── client/
+          │   ├── CatalogueClient.java   ← HTTP GET vers service-catalogue
+          │   ├── LocalClient.java       ← HTTP GET + PATCH vers service-locaux
+          │   └── dto/
+          │       ├── CoursDTO.java      ← Objet de transfert (copie partielle de Cours)
+          │       └── LocalDTO.java      ← Objet de transfert (copie partielle de Local)
+          ├── exception/
+          │   ├── EmploiDuTempsException.java   ← Exception métier + code HTTP
+          │   └── EmploiDuTempsExceptionMapper.java ← Mapper JAX-RS
+          └── util/
+              └── HeureUtil.java         ← Conversion HH:mm → minutes + chevauchement
+
+================================================================================
+  6. SERVICE-CATALOGUE — DÉTAIL COMPLET
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+  6.1 IDENTITÉ ET RÔLE
+────────────────────────────────────────────────────────────────────────────────
+
+  Conteneur  : service-catalogue
+  Port hôte  : 8081  →  http://localhost:8081/api/cours
+  Base MySQL : catalogue_db (conteneur catalogue-db)
+  Fichier WAR: service-catalogue.war
+
+  RÔLE UNIQUE : gérer le CATALOGUE des cours de l'UMP Oujda.
+  Ce service est AUTONOME : il ne contacte aucun autre service.
+  Il EST contacté par service-emploi-du-temps.
+
+────────────────────────────────────────────────────────────────────────────────
+  6.2 MODÈLE DE DONNÉES : table "cours"
+────────────────────────────────────────────────────────────────────────────────
+
+  ┌───────────┬────────────────┬──────────────────────────────────────────────┐
+  │ Colonne   │ Type SQL        │ Description                                  │
+  ├───────────┼────────────────┼──────────────────────────────────────────────┤
+  │ id        │ BIGINT PK AUTO │ Identifiant auto-incrémenté                  │
+  │ code      │ VARCHAR(20) UNIQUE NOT NULL │ Code cours (ex: INF301)         │
+  │ intitule  │ VARCHAR(255) NOT NULL       │ Nom du cours                    │
+  │ syllabus  │ TEXT           │ Contenu détaillé (optionnel)                 │
+  │ prerequis │ VARCHAR(500)   │ Codes des cours prérequis (optionnel)        │
+  │ credits   │ INT NOT NULL   │ Nombre de crédits ECTS                       │
+  └───────────┴────────────────┴──────────────────────────────────────────────┘
+
+  CONTRAINTE : code UNIQUE (uk_cours_code) → 2 cours ne peuvent avoir le même code.
+  ATTENTION  : code limité à 20 caractères → "INF301" OK, "TEST-COURS-ABCDEFGHIJ" NON.
+
+────────────────────────────────────────────────────────────────────────────────
+  6.3 ENDPOINTS REST DISPONIBLES
+────────────────────────────────────────────────────────────────────────────────
+
+  GET    /api/cours               → liste tous les cours (HTTP 200)
+  GET    /api/cours/{id}          → un cours par son id (200 ou 404)
+  GET    /api/cours/code/{code}   → un cours par son code (200 ou 404)
+  POST   /api/cours               → crée un cours (201 ou 400)
+  PUT    /api/cours/{id}          → met à jour un cours (200, 400 ou 404)
+  DELETE /api/cours/{id}          → supprime un cours (204 ou 404)
+
+────────────────────────────────────────────────────────────────────────────────
+  6.4 ARCHITECTURE EN COUCHES (service-catalogue)
+────────────────────────────────────────────────────────────────────────────────
+
+  HTTP Request
+      ↓
+  CoursResource   (@RequestScoped, @Path("/cours"))
+      │ Reçoit le JSON → appelle CoursService → retourne Response HTTP
+      ↓
+  CoursService    (@Stateless EJB)
+      │ Valide les données → vérifie unicité → appelle CoursRepository
+      ↓
+  CoursRepository (@Stateless EJB)
+      │ JPQL vers EntityManager JPA → Hibernate → SQL MySQL
+      ↓
+  catalogue_db    (MySQL 8, table "cours")
+
+────────────────────────────────────────────────────────────────────────────────
+  6.5 EXEMPLE D'APPEL REST (création d'un cours)
+────────────────────────────────────────────────────────────────────────────────
+
+  Requête (curl ou Postman) :
+  ─────────────────────────
+    POST http://localhost:8081/api/cours
+    Content-Type: application/json
+
+    {
+      "code": "INF311",
+      "intitule": "DevOps et CI/CD",
+      "syllabus": "Docker, Kubernetes, Jenkins, GitHub Actions",
+      "prerequis": "INF301",
+      "credits": 5
+    }
+
+  Réponse succès :
+  ────────────────
+    HTTP 201 Created
+    {
+      "id": 11,
+      "code": "INF311",
+      "intitule": "DevOps et CI/CD",
+      "syllabus": "Docker, Kubernetes, Jenkins, GitHub Actions",
+      "prerequis": "INF301",
+      "credits": 5
+    }
+
+  Réponse erreur (code dupliqué) :
+  ──────────────────────────────────
+    HTTP 400 Bad Request
+    {
+      "erreur": "Le code cours existe déjà : INF311",
+      "statut": 400
+    }
+
+  Réponse erreur (code trop long > 20 caractères) :
+  ──────────────────────────────────────────────────
+    HTTP 500 Internal Server Error  ← PIÈGE CONNU ! La validation Java ne bloque
+    { "erreur": "Erreur interne..." } pas la longueur du code → MySQL rejette le INSERT.
+                                      Solution : ajouter une validation de longueur
+                                      dans CoursService.validerCours().
+
+────────────────────────────────────────────────────────────────────────────────
+  6.6 DONNÉES INITIALES (init.sql)
+────────────────────────────────────────────────────────────────────────────────
+
+  10 cours pré-chargés au démarrage de catalogue-db :
+    INF301 → Cloud Computing (6 crédits)
+    INF302 → Architecture des Microservices (6 crédits)
+    INF303 → Sécurité des SI (5 crédits)
+    INF304 → Big Data et Analytics (6 crédits)
+    INF305 → Intelligence Artificielle (6 crédits)
+    INF306 → Développement Mobile (5 crédits)
+    INF307 → Réseaux Avancés (5 crédits)
+    INF308 → Génie Logiciel (5 crédits)
+    INF309 → Base de Données Avancées (6 crédits)
+    INF310 → Projet de Fin d'Études (8 crédits)
+
+================================================================================
+  7. SERVICE-LOCAUX — DÉTAIL COMPLET
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+  7.1 IDENTITÉ ET RÔLE
+────────────────────────────────────────────────────────────────────────────────
+
+  Conteneur  : service-locaux
+  Port hôte  : 8082  →  http://localhost:8082/api/locaux
+  Base MySQL : locaux_db (conteneur locaux-db)
+
+  RÔLE : gérer les LOCAUX (salles, amphis, labos) de l'UMP.
+  Trois responsabilités :
+    1. CRUD complet des locaux (création, lecture, modification, suppression)
+    2. Filtrage par disponibilité et type
+    3. MISE À JOUR DE DISPONIBILITÉ via PATCH (état : DISPONIBLE/OCCUPE/EN_MAINTENANCE)
+
+────────────────────────────────────────────────────────────────────────────────
+  7.2 MODÈLE DE DONNÉES : table "locaux"
+────────────────────────────────────────────────────────────────────────────────
+
+  ┌─────────────────┬────────────────┬──────────────────────────────────────────┐
+  │ Colonne         │ Type SQL        │ Description                              │
+  ├─────────────────┼────────────────┼──────────────────────────────────────────┤
+  │ id              │ BIGINT PK AUTO │ Identifiant auto-incrémenté              │
+  │ code            │ VARCHAR(30) UNIQUE │ Code salle (ex: AMPHI-A, TP-L1)     │
+  │ nom             │ VARCHAR(255)   │ Nom complet de la salle                  │
+  │ type            │ VARCHAR(20)    │ AMPHI / SALLE_COURS / SALLE_TP / LABO   │
+  │ capacite        │ INT            │ Nombre de places assises                 │
+  │ batiment        │ VARCHAR(100)   │ Bâtiment (ex: Bloc C, Campus Central)    │
+  │ etage           │ INT            │ Étage (0 = rez-de-chaussée)             │
+  │ projecteur      │ TINYINT(1)     │ 1 = équipé d'un projecteur               │
+  │ tableauNumerique│ TINYINT(1)     │ 1 = tableau numérique interactif         │
+  │ climatisation   │ TINYINT(1)     │ 1 = climatisé                           │
+  │ accessiblePMR   │ TINYINT(1)     │ 1 = accessible Personnes à Mobilité Réduite│
+  │ disponibilite   │ VARCHAR(20)    │ DISPONIBLE / OCCUPE / EN_MAINTENANCE     │
+  └─────────────────┴────────────────┴──────────────────────────────────────────┘
+
+  ENUM TypeLocal : AMPHI, SALLE_COURS, SALLE_TP, LABO
+  ENUM DisponibiliteLocal : DISPONIBLE, OCCUPE, EN_MAINTENANCE
+
+────────────────────────────────────────────────────────────────────────────────
+  7.3 ENDPOINTS REST DISPONIBLES
+────────────────────────────────────────────────────────────────────────────────
+
+  GET    /api/locaux                        → tous les locaux
+  GET    /api/locaux/{id}                   → un local par id
+  GET    /api/locaux/disponibles?capaciteMin=30 → locaux DISPONIBLES, capacité >= 30
+  GET    /api/locaux/type/SALLE_TP          → locaux d'un type donné
+  POST   /api/locaux                        → créer un local
+  PUT    /api/locaux/{id}                   → mettre à jour un local
+  PATCH  /api/locaux/{id}/disponibilite?valeur=OCCUPE → changer disponibilité ★
+  DELETE /api/locaux/{id}                   → supprimer un local
+
+  ★ L'endpoint PATCH est l'API la plus importante de ce service :
+    il est appelé par service-emploi-du-temps pour réserver/libérer les salles.
+
+────────────────────────────────────────────────────────────────────────────────
+  7.4 EXEMPLE : CHANGER LA DISPONIBILITÉ D'UNE SALLE
+────────────────────────────────────────────────────────────────────────────────
+
+  curl sur Git Bash (Windows) :
+    curl -X PATCH "http://localhost:8082/api/locaux/1/disponibilite?valeur=OCCUPE"
+
+  Réponse (HTTP 200) :
+    { "id": 1, "code": "AMPHI-A", ..., "disponibilite": "OCCUPE" }
+
+  POURQUOI PATCH et pas PUT ?
+    PUT remplacerait l'objet COMPLET (il faudrait renvoyer tous les champs).
+    PATCH modifie UN SEUL attribut (disponibilite) → sémantique REST correcte.
+
+────────────────────────────────────────────────────────────────────────────────
+  7.5 DONNÉES INITIALES (init.sql)
+────────────────────────────────────────────────────────────────────────────────
+
+  10 locaux pré-chargés :
+    AMPHI-A     → Amphi Ibn Khaldoun    (200 places, DISPONIBLE)
+    AMPHI-B     → Amphi Ibn Rochd       (180 places, DISPONIBLE)
+    SALLE-C101  → Salle Cours 101        (45 places, DISPONIBLE)
+    SALLE-C102  → Salle Cours 102        (40 places, DISPONIBLE)
+    TP-L1       → Labo Réseaux L1        (30 places, DISPONIBLE)
+    TP-L2       → Labo Systèmes L2       (28 places, DISPONIBLE)
+    LABO-IA     → Labo Intelligence Artificielle (25 places, DISPONIBLE)
+    LABO-SEC    → Labo Cybersécurité     (22 places, DISPONIBLE)
+    SALLE-D201  → Salle TD D201          (35 places, DISPONIBLE)
+    AMPHI-C     → Amphi Al Qarawiyyin   (250 places, EN_MAINTENANCE) ← non réservable
+
+================================================================================
+  8. SERVICE-EMPLOI-DU-TEMPS — DÉTAIL COMPLET (ORCHESTRATEUR)
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+  8.1 IDENTITÉ ET RÔLE
+────────────────────────────────────────────────────────────────────────────────
+
+  Conteneur  : service-emploi-du-temps
+  Port hôte  : 8083  →  http://localhost:8083/api/emploi-du-temps
+  Base MySQL : emploi_db (conteneur emploi-db)
+
+  RÔLE : orchestrer la PLANIFICATION des séances académiques.
+  C'est le service le plus complexe — il coordonne les deux autres.
+
+  Modèle Seance (table "seances") :
+    coursId    → référence au cours dans service-catalogue (Long — pas de FK SQL)
+    localId    → référence à la salle dans service-locaux  (Long — pas de FK SQL)
+    jour       → enum JourSemaine (LUNDI à SAMEDI)
+    heureDebut → format HH:mm (ex: "08:00")
+    heureFin   → format HH:mm (ex: "10:00")
+    semestre   → ex: "S2-2026"
+    type       → enum TypeSeance (COURS_MAGISTRAL, TP, TD)
+
+  IMPORTANT : coursId et localId sont de SIMPLES ENTIERS — pas des clés étrangères
+  SQL vers les autres bases. L'intégrité est vérifiée dynamiquement via API REST.
+
+────────────────────────────────────────────────────────────────────────────────
+  8.2 FLUX COMPLET DE PLANIFICATION (5 ÉTAPES)
+────────────────────────────────────────────────────────────────────────────────
+
+  Client envoie : POST http://localhost:8083/api/emploi-du-temps
+  Corps JSON :
+    { "coursId": 1, "localId": 3, "jour": "LUNDI",
+      "heureDebut": "08:00", "heureFin": "10:00",
+      "semestre": "S2-2026", "type": "COURS_MAGISTRAL" }
+
+  ┌────────────────────────────────────────────────────────────────┐
+  │  ÉTAPE 1 — Validation locale                                   │
+  │  EmploiDuTempsService.validerSeance()                          │
+  │  → coursId non null, localId non null, jour non null,          │
+  │    heureDebut/fin au format HH:mm, heureDebut < heureFin,     │
+  │    semestre et type non null                                   │
+  │  Si erreur → HTTP 400 Bad Request                              │
+  └────────────────────────┬───────────────────────────────────────┘
+                           ↓
+  ┌────────────────────────────────────────────────────────────────┐
+  │  ÉTAPE 2 — Vérification cours                                  │
+  │  CatalogueClient.verifierCoursExiste(coursId)                  │
+  │  → GET http://service-catalogue:8080/api/cours/1               │
+  │  → Si HTTP 404 → HTTP 400 "Le cours ... n'existe pas"          │
+  │  → Si HTTP 200 → continuer                                     │
+  └────────────────────────┬───────────────────────────────────────┘
+                           ↓
+  ┌────────────────────────────────────────────────────────────────┐
+  │  ÉTAPE 3 — Vérification salle disponible                       │
+  │  LocalClient.verifierSalleDisponible(localId)                  │
+  │  → GET http://service-locaux:8080/api/locaux/disponibles       │
+  │  → Cherche localId dans la liste retournée                     │
+  │  → Si absent → HTTP 400 "La salle ... n'est pas disponible"    │
+  └────────────────────────┬───────────────────────────────────────┘
+                           ↓
+  ┌────────────────────────────────────────────────────────────────┐
+  │  ÉTAPE 4 — Détection conflit horaire                           │
+  │  SeanceRepository.existeConflit(localId, jour, "08:00", "10:00")│
+  │  → SELECT séances existantes pour même salle + même jour      │
+  │  → HeureUtil.seChevauchent() pour chaque séance existante      │
+  │  → Si chevauchement → HTTP 409 Conflict "Conflit de planif..."  │
+  └────────────────────────┬───────────────────────────────────────┘
+                           ↓
+  ┌────────────────────────────────────────────────────────────────┐
+  │  ÉTAPE 5 — Réservation salle                                   │
+  │  LocalClient.reserverSalle(localId)                            │
+  │  → PATCH http://service-locaux:8080/api/locaux/3/disponibilite │
+  │          ?valeur=OCCUPE                                        │
+  │  La salle passe de DISPONIBLE à OCCUPE                        │
+  └────────────────────────┬───────────────────────────────────────┘
+                           ↓
+  ┌────────────────────────────────────────────────────────────────┐
+  │  ÉTAPE 6 — Persistance séance                                  │
+  │  SeanceRepository.create(seance)                               │
+  │  → INSERT INTO seances ...                                     │
+  │  → HTTP 201 Created avec la séance créée (incluant l'id)       │
+  │  Si l'INSERT échoue → libérer la salle (DISPONIBLE) + HTTP 500 │
+  └────────────────────────────────────────────────────────────────┘
+
+────────────────────────────────────────────────────────────────────────────────
+  8.3 FLUX DE SUPPRESSION D'UNE SÉANCE
+────────────────────────────────────────────────────────────────────────────────
+
+  Client envoie : DELETE http://localhost:8083/api/emploi-du-temps/{id}
+
+  1. Chercher la séance par id
+     → Si absente → HTTP 404 "Séance introuvable"
+  2. Récupérer le localId de la séance trouvée
+  3. PATCH service-locaux : disponibilite = DISPONIBLE (libération)
+  4. DELETE en base emploi_db
+  5. → HTTP 204 No Content (succès, corps vide)
+
+  Après suppression : la salle redevient DISPONIBLE pour d'autres séances.
+
+────────────────────────────────────────────────────────────────────────────────
+  8.4 ALGORITHME DE DÉTECTION DE CONFLIT (HeureUtil)
+────────────────────────────────────────────────────────────────────────────────
+
+  Deux créneaux [d1, f1] et [d2, f2] se chevauchent si :
+    d1 < f2  ET  d2 < f1
+
+  Formule en Java (HeureUtil.seChevauchent) :
+    return enMinutes(d1) < enMinutes(f2) && enMinutes(d2) < enMinutes(f1);
+
+  Exemples :
+    [08:00, 10:00] vs [09:00, 11:00] → 480<660 ET 540<600 → CONFLIT ✓
+    [08:00, 10:00] vs [10:00, 12:00] → 480<720 ET 600<600 (FAUX) → OK ✓
+    [08:00, 09:00] vs [11:00, 12:00] → 480<720 ET 660<540 (FAUX) → OK ✓
+
+  Conversion HH:mm → minutes :
+    "08:30" → 8*60 + 30 = 510 minutes
+    Permet de comparer des heures avec de simples entiers.
+
+────────────────────────────────────────────────────────────────────────────────
+  8.5 ENDPOINTS REST DISPONIBLES
+────────────────────────────────────────────────────────────────────────────────
+
+  GET    /api/emploi-du-temps              → toutes les séances
+  GET    /api/emploi-du-temps/{id}         → une séance par id
+  GET    /api/emploi-du-temps/jour/LUNDI   → séances du lundi
+  POST   /api/emploi-du-temps              → planifier une séance (flux 5 étapes)
+  DELETE /api/emploi-du-temps/{id}         → supprimer + libérer salle
+
+================================================================================
+  9. COMMUNICATION INTER-SERVICES (HTTP REST)
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+  9.1 TABLEAU : QUI APPELLE QUI ?
+────────────────────────────────────────────────────────────────────────────────
+
+  ┌───────────────────────┬──────────────────┬──────────────┬────────────────────┐
+  │ Service               │ Appelle catalogue│ Appelle locaux│ Est appelé par...  │
+  ├───────────────────────┼──────────────────┼──────────────┼────────────────────┤
+  │ service-catalogue     │ NON              │ NON          │ emploi, Postman    │
+  │ service-locaux        │ NON              │ NON          │ emploi, Postman    │
+  │ service-emploi-du-temps│ OUI (GET cours) │ OUI (GET+PATCH)│ Postman, test.sh │
+  └───────────────────────┴──────────────────┴──────────────┴────────────────────┘
+
+────────────────────────────────────────────────────────────────────────────────
+  9.2 URLS D'APPEL INTERNES (dans Docker)
+────────────────────────────────────────────────────────────────────────────────
+
+  Les conteneurs communiquent via les NOMS DNS Docker (pas localhost) :
+
+    service-emploi → service-catalogue :
+      http://service-catalogue:8080/api/cours/{id}
+      (défini dans CATALOGUE_BASE_URL dans compose.yaml)
+
+    service-emploi → service-locaux :
+      http://service-locaux:8080/api/locaux/disponibles
+      http://service-locaux:8080/api/locaux/{id}/disponibilite?valeur=...
+      (défini dans LOCAUX_BASE_URL dans compose.yaml)
+
+  Depuis la machine hôte (navigateur/Postman) :
+    http://localhost:8081 → service-catalogue
+    http://localhost:8082 → service-locaux
+    http://localhost:8083 → service-emploi-du-temps
+
+  POURQUOI deux ports différents (8080 interne vs 8081/8082/8083 externe) ?
+    → WildFly écoute toujours sur 8080 DANS le conteneur.
+    → Docker Compose mappe : 8081:8080 (hôte:conteneur).
+    → Les conteneurs entre eux utilisent le port interne 8080.
+
+────────────────────────────────────────────────────────────────────────────────
+  9.3 PATTERN DTO (Data Transfer Object)
+────────────────────────────────────────────────────────────────────────────────
+
+  service-emploi ne peut pas importer la classe Cours du service-catalogue
+  (les services sont des projets Maven SÉPARÉS, sans dépendance directe).
+
+  Solution : classes DTO locales dans le package client/dto/ :
+    CoursDTO.java → contient les champs importants de Cours (id, code, intitule...)
+    LocalDTO.java → contient les champs importants de Local (id, code, disponibilite...)
+
+  Ces DTOs sont remplis par parsing JSON manuel (Jakarta JSON-P).
+  Avantage : si la structure de Cours change dans service-catalogue,
+  seul le parsing JSON est à adapter — pas le modèle de service-emploi.
+
+================================================================================
+  10. MODÈLE DE DONNÉES (BASES MYSQL)
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+  10.1 catalogue_db — Table cours
+────────────────────────────────────────────────────────────────────────────────
+
+  CREATE TABLE cours (
+    id        BIGINT NOT NULL AUTO_INCREMENT,
+    code      VARCHAR(20) NOT NULL,
+    intitule  VARCHAR(255) NOT NULL,
+    syllabus  TEXT,
+    prerequis VARCHAR(500),
+    credits   INT NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uk_cours_code UNIQUE (code)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+────────────────────────────────────────────────────────────────────────────────
+  10.2 locaux_db — Table locaux
+────────────────────────────────────────────────────────────────────────────────
+
+  CREATE TABLE locaux (
+    id               BIGINT NOT NULL AUTO_INCREMENT,
+    code             VARCHAR(30) NOT NULL,
+    nom              VARCHAR(255) NOT NULL,
+    type             VARCHAR(20) NOT NULL,
+    capacite         INT NOT NULL,
+    batiment         VARCHAR(100),
+    etage            INT NOT NULL,
+    projecteur       TINYINT(1) NOT NULL DEFAULT 0,
+    tableauNumerique TINYINT(1) NOT NULL DEFAULT 0,
+    climatisation    TINYINT(1) NOT NULL DEFAULT 0,
+    accessiblePMR    TINYINT(1) NOT NULL DEFAULT 0,
+    disponibilite    VARCHAR(20) NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uk_local_code UNIQUE (code)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+────────────────────────────────────────────────────────────────────────────────
+  10.3 emploi_db — Table seances
+────────────────────────────────────────────────────────────────────────────────
+
+  CREATE TABLE seances (
+    id          BIGINT NOT NULL AUTO_INCREMENT,
+    cours_id    BIGINT NOT NULL,     ← id du cours (pas de FK SQL — découplage)
+    local_id    BIGINT NOT NULL,     ← id du local (pas de FK SQL — découplage)
+    jour        VARCHAR(15) NOT NULL, ← LUNDI, MARDI...
+    heure_debut VARCHAR(5) NOT NULL,  ← format HH:mm
+    heure_fin   VARCHAR(5) NOT NULL,  ← format HH:mm
+    semestre    VARCHAR(20) NOT NULL,
+    type        VARCHAR(20) NOT NULL, ← COURS_MAGISTRAL, TP, TD
+    PRIMARY KEY (id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+  NOTE : pas de clés étrangères entre les 3 bases (elles sont dans des
+  conteneurs MySQL séparés). L'intégrité référentielle est assurée
+  applicativement par les clients HTTP (CatalogueClient, LocalClient).
+
+================================================================================
+  11. CONTENEURISATION DOCKER ET ORCHESTRATION
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+  11.1 DOCKERFILE (multi-étapes)
+────────────────────────────────────────────────────────────────────────────────
+
+  Chaque service a un Dockerfile en 2 étapes (multi-stage build) :
+
+  ÉTAPE 1 — BUILD (image Maven) :
+    FROM maven:3.9-eclipse-temurin-17 AS build
+    COPY pom.xml .
+    COPY src ./src
+    RUN mvn clean package -DskipTests
+    → Produit : service-catalogue.war dans /target/
+
+  ÉTAPE 2 — DEPLOY (image WildFly) :
+    FROM quay.io/wildfly/wildfly:27.0.1.Final-jdk17
+    COPY --from=build target/service-catalogue.war .../standalone/deployments/
+    COPY docker/entrypoint.sh /opt/entrypoint.sh
+    COPY docker/module.xml    ... (module driver MySQL)
+    CMD ["/opt/entrypoint.sh"]
+    → Image finale légère (sans Maven)
+
+  AVANTAGE du multi-stage : l'image finale ne contient pas Maven ni le code source,
+  seulement WildFly + le WAR → taille minimale.
+
+────────────────────────────────────────────────────────────────────────────────
+  11.2 ENTRYPOINT.SH (configuration WildFly au démarrage)
+────────────────────────────────────────────────────────────────────────────────
+
+  Le script entrypoint.sh configure le datasource MySQL dans WildFly
+  via CLI embarqué (embed-server) AVANT de démarrer WildFly :
+
+    1. Attend que MySQL soit disponible (boucle with mysqladmin ping)
+    2. Lance WildFly en mode embed-server
+    3. Ajoute le module JDBC MySQL
+    4. Crée le datasource (CatalogueDS, LocalsDS ou EmploiDS)
+    5. Démarre WildFly normalement (standalone.sh)
+
+  PROBLÈME CONNU : les fins de ligne Windows (CRLF) cassent ce script sous Linux.
+  SOLUTION : sed -i 's/\r//' entrypoint.sh dans le Dockerfile (ou .gitattributes).
+
+────────────────────────────────────────────────────────────────────────────────
+  11.3 COMPOSE.YAML RACINE
+────────────────────────────────────────────────────────────────────────────────
+
+  # compose.yaml racine : orchestrateur maître
+  include:
+    - path: ./service-catalogue/compose.yaml    ← app catalogue + catalogue-db
+    - path: ./service-locaux/compose.yaml        ← app locaux + locaux-db
+    - path: ./service-emploi-du-temps/compose.yaml ← app emploi + emploi-db
+
+  services:
+    service-emploi-du-temps:
+      depends_on:
+        emploi-db:        condition: service_healthy
+        service-catalogue: condition: service_healthy  ← attend que catalogue soit UP
+        service-locaux:    condition: service_healthy  ← attend que locaux soit UP
+
+  networks:
+    planification-net:
+      driver: bridge    ← réseau virtuel partagé entre les 6 conteneurs
+
+  HEALTHCHECK (sur chaque service WildFly) :
+    test: ["CMD", "curl", "-f", "http://localhost:8080/api/cours"]
+    interval: 15s      ← vérifie toutes les 15 secondes
+    timeout: 5s        ← délai max de la vérification
+    retries: 3         ← 3 échecs consécutifs → conteneur "unhealthy"
+    start_period: 60s  ← délai de grâce au démarrage (WildFly démarre lentement)
+
+────────────────────────────────────────────────────────────────────────────────
+  11.4 VARIABLES D'ENVIRONNEMENT
+────────────────────────────────────────────────────────────────────────────────
+
+  Définies dans les compose.yaml de chaque service :
+
+  service-emploi-du-temps :
+    CATALOGUE_BASE_URL: http://service-catalogue:8080
+    LOCAUX_BASE_URL:    http://service-locaux:8080
+
+  Lues dans Java via :
+    System.getenv().getOrDefault("CATALOGUE_BASE_URL", "http://service-catalogue:8080")
+
+  Intérêt : changer l'URL du catalogue sans recompiler le code.
+
+================================================================================
+  12. LANCEMENT, TESTS ET VALIDATION
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+  12.1 PRÉREQUIS
+────────────────────────────────────────────────────────────────────────────────
+
+  - Docker Desktop 4.x installé et LANCÉ
+  - Java JDK 17 (pour développement local optionnel)
+  - Maven 3.9  (pour développement local optionnel)
+  - Git Bash   (pour exécuter test.sh sous Windows)
+  - Postman    (optionnel — tests manuels)
+
+────────────────────────────────────────────────────────────────────────────────
+  12.2 DÉMARRAGE
+────────────────────────────────────────────────────────────────────────────────
+
+  Depuis le dossier projet2-planification/ :
+
+    docker compose up --build -d
+
+    --build : reconstruit les images Docker (Maven compile + Dockerfile)
+    -d      : mode détaché (arrière-plan, libère le terminal)
+
+  Attendre 90 à 120 secondes (WildFly + MySQL démarrent lentement).
+
+  Vérification :
+    docker compose ps
+
+  Résultat attendu (6 conteneurs tous "healthy") :
+    NAME                         STATUS         PORTS
+    service-catalogue            Up (healthy)   0.0.0.0:8081->8080/tcp
+    catalogue-db                 Up (healthy)   3306/tcp
+    service-locaux               Up (healthy)   0.0.0.0:8082->8080/tcp
+    locaux-db                    Up (healthy)   3306/tcp
+    service-emploi-du-temps      Up (healthy)   0.0.0.0:8083->8080/tcp
+    emploi-db                    Up (healthy)   3306/tcp
+
+────────────────────────────────────────────────────────────────────────────────
+  12.3 SCRIPT DE TESTS (test.sh)
+────────────────────────────────────────────────────────────────────────────────
+
+  Depuis Git Bash :
+    cd projet2-planification
+    chmod +x test.sh
+    ./test.sh
+
+  Le script effectue 14 tests automatisés :
+    [PASS] Healthcheck service-catalogue → 200
+    [PASS] Healthcheck service-locaux → 200
+    [PASS] Healthcheck service-emploi-du-temps → 200
+    [PASS] POST /api/cours → 201 (création cours de test)
+    [PASS] POST /api/locaux → 201 (création local de test)
+    [PASS] POST /api/emploi-du-temps → 201 (planification séance)
+    [PASS] POST /api/emploi-du-temps (même créneau) → 409 (conflit horaire)
+    [PASS] GET /api/emploi-du-temps/jour/LUNDI → 200
+    [PASS] DELETE /api/emploi-du-temps/{id} → 204 (suppression)
+    [PASS] GET /api/locaux/{id} disponibilite=DISPONIBLE (salle libérée)
+    [PASS] GET /api/cours/{id} → 200
+    [PASS] GET /api/cours/code/{code} → 200
+    [PASS] GET /api/locaux/disponibles?capaciteMin=30 → 200
+    [PASS] GET /api/locaux/type/SALLE_TP → 200
+
+  Code de sortie : 0 = succès, 1 = au moins un échec.
+
+────────────────────────────────────────────────────────────────────────────────
+  12.4 RÉINITIALISATION DES DONNÉES
+────────────────────────────────────────────────────────────────────────────────
+
+    docker compose down -v         ← supprime conteneurs + volumes MySQL
+    docker compose up --build -d   ← recrée tout avec init.sql
+
+────────────────────────────────────────────────────────────────────────────────
+  12.5 ARRÊT
+────────────────────────────────────────────────────────────────────────────────
+
+    docker compose down          ← arrête et supprime les conteneurs (volumes préservés)
+    docker compose down -v       ← arrête + supprime TOUT (volumes inclus)
+
+================================================================================
+  13. PROBLÈMES RENCONTRÉS ET SOLUTIONS
+================================================================================
+
+  ┌──────────────────────────────────────┬──────────────────────────────────────────┐
+  │ Problème                             │ Cause et solution                        │
+  ├──────────────────────────────────────┼──────────────────────────────────────────┤
+  │ Conteneurs WildFly Exited(255)       │ CAUSE : fins de ligne Windows (CRLF)     │
+  │                                      │ dans entrypoint.sh → bash Linux rejette. │
+  │                                      │ SOLUTION : sed -i 's/\r//' dans Dockerfile│
+  │                                      │ et .gitattributes avec * text=auto.      │
+  ├──────────────────────────────────────┼──────────────────────────────────────────┤
+  │ HTTP 404 sur /api/cours              │ CAUSE : WildFly déploie le WAR sous      │
+  │                                      │ /service-catalogue/* par défaut.         │
+  │                                      │ SOLUTION : jboss-web.xml avec            │
+  │                                      │ <context-root>/</context-root>           │
+  ├──────────────────────────────────────┼──────────────────────────────────────────┤
+  │ Erreur JDBC / datasource non trouvé  │ CAUSE : module MySQL JDBC non configuré  │
+  │                                      │ SOLUTION : module.xml + embed-server CLI │
+  │                                      │ dans entrypoint.sh                       │
+  ├──────────────────────────────────────┼──────────────────────────────────────────┤
+  │ Conflit 409 retournait HTTP 500      │ CAUSE : EJBException enveloppait         │
+  │                                      │ EmploiDuTempsException.                  │
+  │                                      │ SOLUTION : @ApplicationException sur     │
+  │                                      │ EmploiDuTempsException + ExceptionMapper │
+  ├──────────────────────────────────────┼──────────────────────────────────────────┤
+  │ POST cours retourne 500 DataException│ CAUSE : code cours > 20 caractères.      │
+  │ (ex: code "TEST-COURS-1234567890")   │ MySQL rejette INSERT (VARCHAR(20)).      │
+  │                                      │ SOLUTION : utiliser timestamp court ou   │
+  │                                      │ ajouter validation longueur dans service.│
+  ├──────────────────────────────────────┼──────────────────────────────────────────┤
+  │ curl JSON sous PowerShell échoue     │ CAUSE : PowerShell gère mal les guillemets│
+  │                                      │ dans les corps JSON.                     │
+  │                                      │ SOLUTION : utiliser Git Bash, fichier    │
+  │                                      │ JSON temporaire, ou Postman.             │
+  └──────────────────────────────────────┴──────────────────────────────────────────┘
+
+================================================================================
+  14. QUESTIONS FRÉQUENTES — RÉPONSES COURTES (SOUTENANCE)
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+  Q : Quelle est la différence entre les 3 microservices ?
+────────────────────────────────────────────────────────────────────────────────
+  R : service-catalogue = gestion du catalogue des cours (CRUD autonome).
+      service-locaux = gestion des salles + disponibilité (CRUD autonome).
+      service-emploi-du-temps = orchestrateur de planification.
+      Il est le seul à appeler les deux autres via HTTP REST.
+
+────────────────────────────────────────────────────────────────────────────────
+  Q : Qu'est-ce qu'un microservice ? Pourquoi pas un monolithe ?
+────────────────────────────────────────────────────────────────────────────────
+  R : Un microservice est une application indépendante avec sa propre base.
+      Avantage : si service-catalogue tombe, service-locaux continue.
+      En monolithe : une panne stoppe toute l'application.
+      Les microservices permettent aussi de déployer/mettre à jour
+      chaque service indépendamment.
+
+────────────────────────────────────────────────────────────────────────────────
+  Q : Pourquoi PATCH pour la disponibilité et pas PUT ?
+────────────────────────────────────────────────────────────────────────────────
+  R : PUT remplace l'objet complet — il faudrait renvoyer tous les champs du local.
+      PATCH modifie partiellement — seul le champ "disponibilite" change.
+      Sémantique REST correcte : PATCH = modification d'un attribut.
+
+────────────────────────────────────────────────────────────────────────────────
+  Q : Comment est détecté le conflit horaire ?
+────────────────────────────────────────────────────────────────────────────────
+  R : SeanceRepository.existeConflit() charge les séances existantes pour
+      la même salle et le même jour. Pour chaque séance, HeureUtil.seChevauchent()
+      applique la formule : d1 < f2 ET d2 < f1.
+      Si vrai → exception HTTP 409 Conflict.
+
+────────────────────────────────────────────────────────────────────────────────
+  Q : Est-ce que catalogue connaît emploi-du-temps ?
+────────────────────────────────────────────────────────────────────────────────
+  R : Non. Le couplage est unidirectionnel.
+      Seul emploi-du-temps appelle catalogue.
+      Catalogue ne sait pas qui consomme son API (découplage total).
+
+────────────────────────────────────────────────────────────────────────────────
+  Q : Pourquoi 3 bases MySQL séparées ?
+────────────────────────────────────────────────────────────────────────────────
+  R : Principe "database per service" des microservices.
+      Chaque service est propriétaire exclusif de ses données.
+      Cela garantit le découplage : service-locaux peut changer
+      son schéma sans impacter les autres.
+
+────────────────────────────────────────────────────────────────────────────────
+  Q : Pourquoi Docker Compose ?
+────────────────────────────────────────────────────────────────────────────────
+  R : Pour lancer les 6 conteneurs (3 apps + 3 MySQL) avec une seule commande.
+      Compose gère automatiquement le réseau partagé, les dépendances
+      de démarrage (emploi attend catalogue + locaux healthy) et les healthchecks.
+
+────────────────────────────────────────────────────────────────────────────────
+  Q : Pourquoi WildFly et pas Tomcat ?
+────────────────────────────────────────────────────────────────────────────────
+  R : Tomcat = conteneur de servlets, ne supporte que JAX-RS avec bibliothèques externes.
+      WildFly = serveur d'applications Jakarta EE 10 complet : EJB, JTA (transactions),
+      CDI, JPA nativement. Adapté aux applications d'entreprise.
+
+────────────────────────────────────────────────────────────────────────────────
+  Q : Que signifie "healthy" dans docker compose ps ?
+────────────────────────────────────────────────────────────────────────────────
+  R : Le healthcheck Docker a réussi : curl sur /api/cours (WildFly répond HTTP 200)
+      ou mysqladmin ping (MySQL répond).
+      "healthy" signifie que le service est prêt à recevoir des requêtes.
+
+────────────────────────────────────────────────────────────────────────────────
+  Q : Comment réinitialiser les données ?
+────────────────────────────────────────────────────────────────────────────────
+  R : docker compose down -v puis docker compose up --build -d
+      L'option -v supprime les volumes MySQL → init.sql est re-exécuté.
+
+────────────────────────────────────────────────────────────────────────────────
+  Q : Quelle est la différence entre port 8080 et 8081/8082/8083 ?
+────────────────────────────────────────────────────────────────────────────────
+  R : 8080 = port WildFly DANS le conteneur (identique pour les 3 services).
+      8081/8082/8083 = ports sur la machine hôte (Windows).
+      Docker Compose mappe : 8081:8080 (port hôte → port conteneur).
+      Les conteneurs entre eux communiquent par le port interne 8080.
+
+────────────────────────────────────────────────────────────────────────────────
+  Q : Qu'est-ce que @ApplicationException ?
+────────────────────────────────────────────────────────────────────────────────
+  R : Annotation EJB Jakarta sur EmploiDuTempsException.
+      Sans elle : WildFly emballe toute RuntimeException dans EJBException,
+      ce qui rend difficile la récupération du code HTTP dans le Resource.
+      Avec @ApplicationException(rollback=true) : l'exception se propage
+      telle quelle ET la transaction JTA est annulée automatiquement.
+
+────────────────────────────────────────────────────────────────────────────────
+  Q : Y a-t-il une interface utilisateur graphique ?
+────────────────────────────────────────────────────────────────────────────────
+  R : Non. C'est un backend pur — API REST JSON uniquement.
+      Pas de HTML, React, Angular ni JSP dans ce projet.
+      On interagit avec l'API via Postman, curl ou le script test.sh.
+      L'ajout d'une interface web serait une perspective d'évolution.
+
+────────────────────────────────────────────────────────────────────────────────
+  Q : Comment les services communiquent-ils dans Docker ?
+────────────────────────────────────────────────────────────────────────────────
+  R : Via le réseau Docker bridge "planification-net".
+      Docker Compose assigne à chaque conteneur un nom DNS = son nom de service.
+      Exemple : "service-catalogue" est résolu en IP automatiquement.
+      service-emploi-du-temps appelle http://service-catalogue:8080/api/cours
+      sans connaître l'IP réelle (DNS interne Docker).
+
+================================================================================
+  15. DÉROULEMENT RECOMMANDÉ DE LA DÉMO (3-5 minutes)
+================================================================================
+
+  Étape 1 — Prérequis
+  ───────────────────
+    Ouvrir Docker Desktop et vérifier qu'il est démarré.
+
+  Étape 2 — Démarrage
+  ────────────────────
+    cd projet2-planification
+    docker compose up --build -d
+    (laisser 90-120 secondes)
+
+  Étape 3 — Vérification état
+  ────────────────────────────
+    docker compose ps
+    → montrer les 6 conteneurs "Up (healthy)"
+
+  Étape 4 — Tests automatisés
+  ─────────────────────────────
+    [Git Bash]  ./test.sh
+    → montrer les 14 [PASS] en vert
+
+  Étape 5 — Démonstration Postman (optionnel)
+  ─────────────────────────────────────────────
+    a. GET http://localhost:8081/api/cours
+       → montrer les 10 cours du catalogue
+
+    b. GET http://localhost:8082/api/locaux/disponibles
+       → montrer les salles disponibles
+
+    c. POST http://localhost:8083/api/emploi-du-temps
+       Body : {"coursId":1,"localId":1,"jour":"LUNDI",
+               "heureDebut":"08:00","heureFin":"10:00",
+               "semestre":"S2-2026","type":"COURS_MAGISTRAL"}
+       → HTTP 201 + séance créée
+
+    d. POST même requête → HTTP 409 Conflict (conflit horaire)
+       → expliquer l'algorithme HeureUtil
+
+    e. GET http://localhost:8082/api/locaux/1
+       → montrer disponibilite = "OCCUPE"
+
+    f. DELETE http://localhost:8083/api/emploi-du-temps/{id}
+       → HTTP 204 + salle redevient DISPONIBLE
+
+  Étape 6 — Explication architecture (schéma)
+  ─────────────────────────────────────────────
+    Dessiner ou montrer le schéma des 3 services + 3 BDD + flèches HTTP.
+    Expliquer : couplage unidirectionnel, database per service, orchestrateur.
+
+  Étape 7 — Arrêt propre
+  ───────────────────────
+    docker compose down
+
+================================================================================
+  RÉSUMÉ EN UNE PHRASE (ELEVATOR PITCH)
+================================================================================
+
+  « Nous avons conçu trois microservices Jakarta EE 10 pour planifier des séances
+  universitaires à l'UMP Oujda : service-catalogue (cours), service-locaux (salles)
+  et service-emploi-du-temps (orchestrateur), chacun avec sa base MySQL, son
+  conteneur WildFly, orchestrés par Docker Compose, communicant par API REST HTTP,
+  avec détection de conflits horaires et 14 tests d'intégration automatisés. »
+
+================================================================================
+  FIN DU RAPPORT GÉNÉRAL
+================================================================================
