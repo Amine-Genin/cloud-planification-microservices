@@ -79,19 +79,19 @@ Prérequis hôte : **VirtualBox** + **Vagrant**.
 
 ```bash
 cd projet2-planification
-vagrant up
+vagrant up k3s-master
 ```
 
-Après provisionnement (10–20 min la première fois), les API sont accessibles sur la machine hôte :
+Après provisionnement (10–20 min la première fois), les API sont accessibles sur la machine hôte (ports **18081–18083** pour éviter le conflit avec Docker Desktop local) :
 
-- http://localhost:8081/api/cours
-- http://localhost:8082/api/locaux
-- http://localhost:8083/api/emploi-du-temps
+- http://localhost:18081/api/cours
+- http://localhost:18082/api/locaux
+- http://localhost:18083/api/emploi-du-temps
 
 Tests dans la VM :
 
 ```bash
-vagrant ssh -c "cd /home/vagrant/projet2-planification && ./test.sh"
+vagrant ssh k3s-master -c "cd /home/vagrant/projet2-planification && ./test.sh"
 ```
 
 Documentation complète : `PHASE3_VAGRANT.txt`.

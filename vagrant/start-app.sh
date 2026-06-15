@@ -60,6 +60,12 @@ else
   fi
   RUN_MODE="compose"
 
+  # Réseau partagé (créé par compose.yaml ; filet de sécurité si résidu external)
+  if ! docker network inspect planification-net >/dev/null 2>&1; then
+    echo "[INFO] Création du réseau Docker planification-net..."
+    docker network create planification-net
+  fi
+
   if [ "${COMPOSE_BUILD}" = "1" ]; then
     echo "[INFO] docker compose up --build -d ..."
     docker compose up --build -d
@@ -129,7 +135,10 @@ else
   echo "  Locaux    : http://localhost:8082/api/locaux"
   echo "  Emploi    : http://localhost:8083/api/emploi-du-temps"
   echo ""
-  echo "Depuis Windows (ports forwardés) : mêmes URLs sur localhost."
+  echo "Depuis Windows (Vagrant host 18081-18083, évite conflit Docker Desktop) :"
+  echo "  Catalogue : http://localhost:18081/api/cours"
+  echo "  Locaux    : http://localhost:18082/api/locaux"
+  echo "  Emploi    : http://localhost:18083/api/emploi-du-temps"
 fi
 echo ""
 echo "Tests : vagrant ssh k3s-master -c 'cd ${APP_DIR} && ./test.sh'"

@@ -1,68 +1,234 @@
 ================================================================================
-  GUIDE MAÎTRE — COMMENT FAIRE LA DÉMO DU DÉBUT À LA FIN
+  GUIDE MAÎTRE — DÉMO COMPLÈTE DU DÉBUT À LA FIN
   Projet 2 — Planification & Logistique — UMP Oujda
-  Trinôme : Ayoub (emploi-du-temps) + Aymane (catalogue) + Amine (locaux)
+  Master M2I — Cloud Computing — 2025/2026
+  Trinôme : Ayoub (emploi-du-temps) · Aymane (catalogue) · Amine (locaux)
 ================================================================================
 
-  LIS CE FICHIER EN PREMIER.
-  Il te dit, dans l'ordre exact : ce qu'il te faut, comment démarrer, quels
-  fichiers de test ouvrir, qui parle quand, et comment finir proprement.
+  ★ LIS CE FICHIER EN PREMIER ★
 
-  LES AUTRES FICHIERS (à garder ouverts à côté pendant la démo) :
-    • DEMO_TEST_CATALOGUE.txt        → tests du service catalogue (Aymane)
-    • DEMO_TEST_LOCAUX.txt           → tests du service locaux (Amine)
-    • DEMO_TEST_EMPLOI_DU_TEMPS.txt  → tests de l'orchestrateur (Ayoub) ★
-    • AYOUB_SERVICE_EMPLOI_DU_TEMPS.txt / AYMANE_... / AMINE_... → fiches théorie
-    • RAPPORT_GENERAL.txt            → le rapport complet (référence)
+  Ce guide explique TOUT, dans l'ordre :
+    • ce qu'il faut installer et ouvrir avant la démo ;
+    • comment démarrer le projet (3 modes possibles) ;
+    • qui présente quoi, avec quels fichiers et quelles commandes ;
+    • comment lancer les tests automatiques ;
+    • comment dépanner et arrêter proprement.
 
 ================================================================================
-  PARTIE A — CE DONT TU AS BESOIN (matériel / logiciel)
+  TABLE DES MATIÈRES
 ================================================================================
 
-  AVANT LE JOUR J, vérifier que tu as :
-
-  ☐ Docker Desktop installé ET qui démarre correctement
-  ☐ Git Bash installé (pour curl et test.sh)
-  ☐ Postman installé + collection importée (postman_collection.json)
-  ☐ Un navigateur (Chrome/Edge) pour les GET simples
-  ☐ Le projet ouvert dans VS Code / l'éditeur
-  ☐ Une connexion (pour le premier build qui télécharge les images Docker)
-
-  ASTUCE : fais un essai COMPLET de la démo la veille, pour éviter les surprises.
+  PARTIE 0  — Comprendre le projet en 2 minutes
+  PARTIE 1  — Fichiers du projet (lesquels ouvrir, pour quoi)
+  PARTIE 2  — Outils à utiliser (où taper quoi)
+  PARTIE 3  — Choisir son mode de démo (Phase 2 / 3 / 4)
+  PARTIE 4  — Démarrage AVANT la présentation (étape par étape)
+  PARTIE 5  — Déroulé de la démo devant le prof (8-12 min)
+  PARTIE 6  — Tests automatiques (test.sh)
+  PARTIE 7  — Démo seul (version courte 5 min)
+  PARTIE 8  — Bonus : montrer Vagrant ou Kubernetes
+  PARTIE 9  — Dépannage complet
+  PARTIE 10 — Arrêt propre après la démo
+  PARTIE 11 — Checklist finale (à cocher avant de présenter)
 
 ================================================================================
-  PARTIE B — DÉMARRAGE (à faire 5 minutes AVANT de présenter)
+  PARTIE 0 — COMPRENDRE LE PROJET EN 2 MINUTES
 ================================================================================
 
-  ÉTAPE 1 : Lancer Docker Desktop
-  ────────────────────────────────
-    Ouvre Docker Desktop et attends qu'il soit "Running" (icône verte).
+  QU'EST-CE QUE C'EST ?
+  ---------------------
+  Une architecture MICROSERVICES pour planifier des cours à l'UMP Oujda :
+    • 3 applications Jakarta EE 10 (WildFly 27)
+    • 3 bases MySQL séparées (database per service)
+    • Communication HTTP REST entre services
+    • Pas d'interface graphique : API testées avec navigateur, curl, Postman
 
-  ÉTAPE 2 : Ouvrir un terminal dans le dossier du projet
-  ────────────────────────────────────────────────────────
-    Ouvre PowerShell ou Git Bash, puis place-toi dans le dossier :
-      cd "c:\Users\DELL\Documents\Master\Master_M2I\SEMESTRE 2\Cloud Computing\Projets\MiniProjet2\projet2-planification"
+  LES 3 SERVICES
+  --------------
+    service-catalogue      (port 8081) → CRUD des cours
+    service-locaux         (port 8082) → CRUD des salles + PATCH disponibilité
+    service-emploi-du-temps (port 8083) → ORCHESTRATEUR ★ (le plus important)
 
-  ÉTAPE 3 : DÉMARRER PROPREMENT (très important pour des IDs prévisibles)
-  ────────────────────────────────────────────────────────────────────────
-    Pour repartir d'une base fraîche (cours 1-10, salles 1-10) :
+  L'ORCHESTRATEUR (Ayoub) fait quoi ?
+  ------------------------------------
+  Quand on planifie une séance, il :
+    1. Vérifie que le cours existe        → appel HTTP vers catalogue
+    2. Vérifie que la salle est libre     → appel HTTP vers locaux
+    3. Détecte les conflits horaires      → logique en base emploi_db
+    4. Réserve la salle (OCCUPE)          → PATCH vers locaux
+    5. Enregistre la séance               → INSERT en base emploi_db
 
-      docker compose down -v
-      docker compose up --build -d
+  LES 4 PHASES DU PROJET
+  ----------------------
+    Phase 1 → Code Java (Jakarta EE, JAX-RS, JPA)
+    Phase 2 → Docker Compose (6 conteneurs sur la machine hôte)
+    Phase 3 → Vagrant (même stack dans une VM Ubuntu)
+    Phase 4 → Kubernetes / K3s (manifests dans k8s/)
+
+  DONNÉES INITIALES (init.sql)
+  ----------------------------
+    • 10 cours  (INF301 à INF310) dans catalogue_db
+    • 10 salles (AMPHI-A à AMPHI-C…) dans locaux_db
+    • 0 séance  au démarrage dans emploi_db
+
+================================================================================
+  PARTIE 1 — FICHIERS DU PROJET (lesquels ouvrir)
+================================================================================
+
+  FICHIER MAÎTRE (ce fichier)
+  ---------------------------
+    GUIDE_DEMO_COMPLET.txt          ← vue d'ensemble, ordre de la démo
+
+  FICHIERS DE TEST PAR SERVICE (à suivre pendant la démo)
+  -------------------------------------------------------
+    DEMO_TEST_CATALOGUE.txt         ← Aymane — tests service catalogue
+    DEMO_TEST_LOCAUX.txt          ← Amine  — tests service locaux
+    DEMO_TEST_EMPLOI_DU_TEMPS.txt ← Ayoub  — tests orchestrateur ★★★
+
+  FICHES PERSONNELLES (théorie / soutenance)
+  ------------------------------------------
+    AYMANE_SERVICE_CATALOGUE.txt
+    AMINE_SERVICE_LOCAUX.txt
+    AYOUB_SERVICE_EMPLOI_DU_TEMPS.txt
+    RAPPORT_GENERAL.txt             ← rapport complet, schémas, FAQ
+
+  GUIDES TECHNIQUES PAR PHASE
+  ---------------------------
+    README.md                       ← démarrage rapide Docker
+    PHASE3_VAGRANT.txt              ← VM Ubuntu + Docker
+    PHASE4_K8S.txt                  ← Kubernetes / K3s
+
+  FICHIERS TECHNIQUES UTILES
+  --------------------------
+    compose.yaml                    ← orchestration Docker (racine)
+    test.sh                         ← 14 tests automatiques
+    postman_collection.json         ← collection Postman à importer
+    Vagrantfile                     ← définition VM (k3s-master, k3s-worker)
+    k8s/                            ← manifests Kubernetes
+
+  ORDRE D'OUVERTURE RECOMMANDÉ (onglets éditeur)
+  -----------------------------------------------
+    1. GUIDE_DEMO_COMPLET.txt       (ce fichier)
+    2. DEMO_TEST_CATALOGUE.txt
+    3. DEMO_TEST_LOCAUX.txt
+    4. DEMO_TEST_EMPLOI_DU_TEMPS.txt
+    + Postman ouvert à côté
+    + Terminal Git Bash dans le dossier projet
+
+================================================================================
+  PARTIE 2 — OUTILS À UTILISER (où taper quoi)
+================================================================================
+
+  ┌──────────────────┬────────────────────────────────────────────────────────┐
+  │ OUTIL            │ QUAND L'UTILISER                                       │
+  ├──────────────────┼────────────────────────────────────────────────────────┤
+  │ Docker Desktop   │ Phase 2 — lancer docker compose up                     │
+  │ Git Bash         │ curl, test.sh, commandes JSON (OBLIGATOIRE pour curl)  │
+  │ PowerShell       │ vagrant up, docker compose ps (PAS pour curl -d JSON)  │
+  │ Navigateur       │ GET simples : ouvrir URL dans Chrome/Edge              │
+  │ Postman          │ POST/PATCH/DELETE visuels (recommandé pour la démo)    │
+  │ VirtualBox       │ Phase 3 — moteur derrière Vagrant                      │
+  │ Vagrant          │ Phase 3 — vagrant up k3s-master                        │
+  │ kubectl          │ Phase 4 — vérifier pods K8s                            │
+  └──────────────────┴────────────────────────────────────────────────────────┘
+
+  ⚠ RÈGLE D'OR : ne JAMAIS utiliser PowerShell pour curl avec JSON (-d).
+     PowerShell casse les guillemets → erreur 400 ou 500.
+     Utilise GIT BASH ou POSTMAN.
+
+  CHEMIN DU PROJET (Windows)
+  --------------------------
+    cd "c:\Users\DELL\Documents\Master\Master_M2I\SEMESTRE 2\Cloud Computing\Projets\MiniProjet2\projet2-planification"
+
+  URLS SELON LE MODE DE DÉPLOIEMENT
+  ---------------------------------
+
+  MODE A — Docker Desktop direct (Phase 2) :
+    Catalogue : http://localhost:8081/api/cours
+    Locaux    : http://localhost:8082/api/locaux
+    Emploi    : http://localhost:8083/api/emploi-du-temps
+
+  MODE B — Vagrant VM k3s-master (Phase 3), depuis Windows :
+    Catalogue : http://localhost:18081/api/cours
+    Locaux    : http://localhost:18082/api/locaux
+    Emploi    : http://localhost:18083/api/emploi-du-temps
+    (ports 18081+ car Docker local occupe souvent 8081-8083)
+
+  MODE B bis — Dans la VM (vagrant ssh k3s-master) :
+    Catalogue : http://localhost:8081/api/cours
+    Locaux    : http://localhost:8082/api/locaux
+    Emploi    : http://localhost:8083/api/emploi-du-temps
+
+  MODE C — Kubernetes K3s NodePort (Phase 4) :
+    Catalogue : http://localhost:30081/api/cours
+    Locaux    : http://localhost:30082/api/locaux
+    Emploi    : http://localhost:30083/api/emploi-du-temps
+
+  POSTMAN — IMPORT DE LA COLLECTION
+  ---------------------------------
+    1. Ouvrir Postman
+    2. Import → choisir postman_collection.json (racine du projet)
+    3. Adapter les URLs si mode Vagrant (18081) ou K8s (30081)
+
+================================================================================
+  PARTIE 3 — CHOISIR SON MODE DE DÉMO
+================================================================================
+
+  QUEL MODE CHOISIR ?
+  -------------------
+
+  ┌─────────────┬─────────────────────────────────────────────────────────────┐
+  │ MODE        │ QUAND L'UTILISER                                            │
+  ├─────────────┼─────────────────────────────────────────────────────────────┤
+  │ A — Docker  │ Démo standard, la plus simple, la plus rapide ★ RECOMMANDÉ  │
+  │   Phase 2   │ Ports 8081-8083, docker compose ps, 6 conteneurs            │
+  ├─────────────┼─────────────────────────────────────────────────────────────┤
+  │ B — Vagrant │ Montrer la virtualisation (Phase 3 du cours)                │
+  │   Phase 3   │ VM Ubuntu, ports Windows 18081-18083                        │
+  ├─────────────┼─────────────────────────────────────────────────────────────┤
+  │ C — K8s     │ Montrer l'orchestration Cloud-native (Phase 4)             │
+  │   Phase 4   │ kubectl get pods, NodePort 30081-30083                      │
+  └─────────────┴─────────────────────────────────────────────────────────────┘
+
+  CONSEIL SOUTENANCE :
+    • Faire la démo API en MODE A (Docker direct) — plus fiable, plus rapide
+    • Montrer brièvement MODE B ou C en bonus (docker compose ps OU kubectl get pods)
+
+================================================================================
+  PARTIE 4 — DÉMARRAGE AVANT LA PRÉSENTATION
+================================================================================
+
+  ────────────────────────────────────────────────────────────────────────────
+  MODE A — DOCKER DESKTOP (Phase 2) ★ RECOMMANDÉ POUR LA DÉMO API
+  ────────────────────────────────────────────────────────────────────────────
+
+  PRÉREQUIS :
+    ☐ Docker Desktop installé et démarré (icône verte "Running")
+    ☐ Git Bash installé
+    ☐ Connexion Internet (premier build uniquement)
+
+  ÉTAPE A1 — Ouvrir Git Bash dans le dossier projet
+  -------------------------------------------------
+    cd "c:\Users\DELL\Documents\Master\Master_M2I\SEMESTRE 2\Cloud Computing\Projets\MiniProjet2\projet2-planification"
+
+  ÉTAPE A2 — Repartir d'une base propre (IDs 1-10 prévisibles)
+  ------------------------------------------------------------
+    docker compose down -v
+    docker compose up --build -d
 
     EXPLICATION :
-      down -v       → supprime les anciens conteneurs ET les données (volumes)
-      up --build -d → reconstruit les images et lance les 6 conteneurs en fond
+      down -v       → supprime conteneurs + volumes MySQL (données fraîches)
+      up --build -d → rebuild images + lance 6 conteneurs en arrière-plan
 
-  ÉTAPE 4 : ATTENDRE 90 à 120 secondes
-  ───────────────────────────────────────
-    WildFly et MySQL démarrent lentement. Patiente ~2 minutes.
+  ÉTAPE A3 — Attendre 90 à 120 secondes
+  --------------------------------------
+    WildFly + MySQL démarrent lentement. Ne pas précipiter la démo.
 
-  ÉTAPE 5 : Vérifier que tout est "healthy"
-  ────────────────────────────────────────────
-      docker compose ps
+  ÉTAPE A4 — Vérifier que tout est healthy
+  -----------------------------------------
+    docker compose ps
 
-    RÉSULTAT ATTENDU : 6 conteneurs tous "Up (healthy)" :
+    RÉSULTAT ATTENDU — 6 conteneurs "Up (healthy)" :
       service-catalogue        Up (healthy)   0.0.0.0:8081->8080/tcp
       catalogue-db             Up (healthy)
       service-locaux           Up (healthy)   0.0.0.0:8082->8080/tcp
@@ -70,197 +236,525 @@
       service-emploi-du-temps  Up (healthy)   0.0.0.0:8083->8080/tcp
       emploi-db                Up (healthy)
 
-    ⚠ Si un service n'est pas "healthy", attends encore 30 s et refais ps.
-    Si ça bloque, voir PARTIE F (dépannage).
+  ÉTAPE A5 — Test rapide navigateur
+  ----------------------------------
+    Ouvrir : http://localhost:8081/api/cours
+    → doit afficher un tableau JSON de 10 cours
 
-  TU ES PRÊT. Ne touche plus à rien jusqu'à la présentation.
+  ÉTAPE A6 — Préparer Postman
+  ---------------------------
+    Importer postman_collection.json si pas déjà fait
+
+  ✓ PRÊT POUR LA DÉMO MODE A
+
+  ────────────────────────────────────────────────────────────────────────────
+  MODE B — VAGRANT (Phase 3)
+  ────────────────────────────────────────────────────────────────────────────
+
+  PRÉREQUIS :
+    ☐ VirtualBox 7.x
+    ☐ Vagrant 2.4+
+    ☐ 8 Go RAM sur la machine hôte (4 Go pour la VM + système)
+
+  ÉTAPE B1 — Première fois ou après échec
+  ----------------------------------------
+    vagrant destroy k3s-master -f
+    vagrant up k3s-master
+
+    ⏱ Première fois : 15-25 minutes (build Maven dans Docker dans la VM)
+
+  ÉTAPE B2 — Vérifier depuis Windows
+  ------------------------------------
+    http://localhost:18081/api/cours
+    http://localhost:18082/api/locaux
+    http://localhost:18083/api/emploi-du-temps
+
+  ÉTAPE B3 — Vérifier dans la VM
+  -------------------------------
+    vagrant ssh k3s-master
+    docker compose ps
+    exit
+
+  ÉTAPE B4 — Lancer test.sh dans la VM
+  -------------------------------------
+    vagrant ssh k3s-master -c "cd /home/vagrant/projet2-planification && ./test.sh"
+
+  NOTE : si Docker Desktop tourne aussi sur Windows (8081 occupé), c'est normal :
+         Vagrant utilise 18081-18083 sur l'hôte.
+
+  ✓ PRÊT POUR LA DÉMO MODE B
+
+  ────────────────────────────────────────────────────────────────────────────
+  MODE C — KUBERNETES K3s (Phase 4)
+  ────────────────────────────────────────────────────────────────────────────
+
+  PRÉREQUIS :
+    ☐ K3s installé (dans VM ou Linux)
+    ☐ kubectl configuré
+
+  ÉTAPE C1 — Dans la VM k3s-master (ou nœud K3s)
+  -----------------------------------------------
+    vagrant ssh k3s-master
+    cd /home/vagrant/projet2-planification
+    chmod +x k8s/scripts/*.sh
+    ./k8s/scripts/deploy.sh
+
+  ÉTAPE C2 — Vérifier les pods
+  -----------------------------
+    kubectl get pods -n planification
+    → 6 pods Running (3 MySQL + 3 WildFly) après ~3 min
+
+  ÉTAPE C3 — Tester depuis Windows (si ports forwardés)
+  -------------------------------------------------------
+    http://localhost:30081/api/cours
+    http://localhost:30082/api/locaux
+    http://localhost:30083/api/emploi-du-temps
+
+  ✓ PRÊT POUR LA DÉMO MODE C
 
 ================================================================================
-  PARTIE C — DÉROULÉ DE LA DÉMO (ordre exact, 8-10 minutes)
+  PARTIE 5 — DÉROULÉ DE LA DÉMO DEVANT LE PROF (8-12 minutes)
 ================================================================================
 
-  L'idée : on présente dans l'ordre logique de l'architecture.
-  D'abord les 2 services autonomes (catalogue, locaux), puis l'orchestrateur
-  qui les utilise. Chaque membre présente SON service.
+  Les URLs ci-dessous supposent MODE A (Docker, ports 8081-8083).
+  Si MODE B Vagrant : remplacer 8081→18081, 8082→18082, 8083→18083.
+  Si MODE C K8s     : remplacer par 30081, 30082, 30083.
 
-  ┌──────────────────────────────────────────────────────────────────────┐
-  │  MOMENT 0 — INTRODUCTION (30 secondes, Ayoub ou n'importe qui)        │
-  └──────────────────────────────────────────────────────────────────────┘
-    Dire :
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  MOMENT 0 — INTRODUCTION (30 s) — n'importe qui du trinôme               │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  DIRE :
     « Notre projet est une architecture microservices pour la planification
-     académique. Trois services Jakarta EE indépendants, chacun avec sa base
-     MySQL, conteneurisés avec Docker, qui communiquent par API REST.
-     Je vais d'abord montrer que les 6 conteneurs tournent. »
+     académique à l'UMP. Trois services Jakarta EE indépendants, chacun avec
+     sa base MySQL, conteneurisés avec Docker, qui communiquent par API REST. »
 
-    Montrer : docker compose ps  (les 6 conteneurs healthy)
+  MONTRER :
+    docker compose ps
+    → 6 conteneurs healthy sur le réseau planification-net
 
-  ┌──────────────────────────────────────────────────────────────────────┐
-  │  MOMENT 1 — SERVICE CATALOGUE (Aymane, ~2 min)                        │
-  │  FICHIER À SUIVRE : DEMO_TEST_CATALOGUE.txt                           │
-  └──────────────────────────────────────────────────────────────────────┘
-    Aymane ouvre DEMO_TEST_CATALOGUE.txt et fait, dans l'ordre :
-      1. TEST 1 → lister les 10 cours
-      2. TEST 3 → trouver par code INF305
-      3. TEST 5 → créer le cours INF311 (201)
-      4. TEST 6 → recréer INF311 → erreur 400 (UNICITÉ) ★
-      5. TEST 8 → supprimer INF311 (204)
+  MONTRER (optionnel) :
+    Schéma dans RAPPORT_GENERAL.txt section architecture
+    ou dessiner : [catalogue] [locaux] ← HTTP ← [emploi-du-temps]
 
-    Phrase de fin (Aymane) :
-    « Voilà le CRUD du catalogue avec validation et unicité du code. Ce service
-     est autonome ; il sera consulté par l'orchestrateur. »
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  MOMENT 1 — SERVICE CATALOGUE (~2 min) — AYMANE                          │
+  │  FICHIER : DEMO_TEST_CATALOGUE.txt                                       │
+  └──────────────────────────────────────────────────────────────────────────┘
 
-  ┌──────────────────────────────────────────────────────────────────────┐
-  │  MOMENT 2 — SERVICE LOCAUX (Amine, ~2 min)                            │
-  │  FICHIER À SUIVRE : DEMO_TEST_LOCAUX.txt                              │
-  └──────────────────────────────────────────────────────────────────────┘
-    Amine ouvre DEMO_TEST_LOCAUX.txt et fait, dans l'ordre :
-      1. TEST 1 → lister les 10 salles
-      2. TEST 2 → salles disponibles capaciteMin=100
-      3. TEST 5 → réserver la salle 1 (PATCH → OCCUPE) ★
-      4. TEST 2 → re-lister disponibles (la salle 1 a disparu !)
-      5. TEST 6 → libérer la salle 1 (PATCH → DISPONIBLE)
+  OUTIL : Git Bash + navigateur (GET) ou Postman
 
-    Phrase de fin (Amine) :
-    « Mon service gère les salles et surtout leur disponibilité via PATCH.
-     C'est cet endpoint que l'orchestrateur va utiliser pour réserver. »
+  ORDRE DES TESTS :
+    TEST 1 → GET /api/cours
+             curl http://localhost:8081/api/cours
+             → 10 cours INF301-INF310
 
-  ┌──────────────────────────────────────────────────────────────────────┐
-  │  MOMENT 3 — SERVICE EMPLOI-DU-TEMPS (Ayoub, ~4 min) ★★★ LE CŒUR       │
-  │  FICHIER À SUIVRE : DEMO_TEST_EMPLOI_DU_TEMPS.txt                     │
-  └──────────────────────────────────────────────────────────────────────┘
-    ⚠ IMPORTANT : avant ce moment, assure-toi que la salle 1 est DISPONIBLE
-    (Amine l'a libérée au MOMENT 2, TEST 6). Sinon refais le PATCH DISPONIBLE.
+    TEST 3 → GET /api/cours/code/INF305
+             → cours Intelligence Artificielle
 
-    Ayoub ouvre DEMO_TEST_EMPLOI_DU_TEMPS.txt et fait, dans l'ordre :
-      1. TEST 1 → lister les séances (vide [])
-      2. TEST 3 → planifier séance LUNDI 08:00-10:00 (201) ★
-      3. TEST 4 → montrer salle 1 devenue OCCUPE (PREUVE orchestration) ★★★
-      4. TEST 5 → tenter conflit 09:00-11:00 → 409 (DÉTECTION CONFLIT) ★★★
-      5. TEST 6 → créneau consécutif 10:00-12:00 → 201 (algorithme intelligent)
-      6. TEST 7 → cours inexistant 9999 → 400 (vérif catalogue)
-      7. TEST 9 → lister les séances du lundi
+    TEST 5 → POST créer cours INF311
+             curl -X POST http://localhost:8081/api/cours \
+               -H "Content-Type: application/json" \
+               -d '{"code":"INF311","intitule":"DevOps Avancé","credits":5}'
+             → HTTP 201
 
-    Phrase de fin (Ayoub) :
-    « Mon service orchestre les deux autres : il vérifie le cours via catalogue,
-     la salle via locaux, détecte les conflits horaires, réserve la salle et
-     enregistre la séance. C'est le cœur de l'architecture microservices. »
+    TEST 6 → POST recréer INF311 (unicité)
+             → HTTP 400 (code déjà existant) ★
 
-  ┌──────────────────────────────────────────────────────────────────────┐
-  │  MOMENT 4 — TESTS AUTOMATISÉS (Ayoub ou n'importe qui, ~1 min)        │
-  └──────────────────────────────────────────────────────────────────────┘
-    Pour prouver que TOUT est validé automatiquement, lancer le script :
+    TEST 8 → DELETE cours INF311
+             → HTTP 204
 
-      [Git Bash, dans projet2-planification]
-      chmod +x test.sh
-      ./test.sh
+  DIRE EN CONCLUSION (Aymane) :
+    « CRUD complet avec validation Jakarta Bean Validation et unicité du code.
+     Service autonome, consulté par l'orchestrateur via HTTP. »
 
-    Montrer les 14 [PASS] en vert + "RÉSULTAT GLOBAL : SUCCÈS".
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  MOMENT 2 — SERVICE LOCAUX (~2 min) — AMINE                              │
+  │  FICHIER : DEMO_TEST_LOCAUX.txt                                          │
+  └──────────────────────────────────────────────────────────────────────────┘
 
-    Dire :
-    « Ce script enchaîne 14 tests d'intégration bout-en-bout : création,
-     planification, conflit, lecture, suppression, libération de salle.
-     Tout passe automatiquement. »
+  OUTIL : Git Bash ou Postman (PATCH visuel recommandé)
 
-  ┌──────────────────────────────────────────────────────────────────────┐
-  │  MOMENT 5 — EXPLICATION ARCHITECTURE (tous, ~1 min)                   │
-  └──────────────────────────────────────────────────────────────────────┘
-    Montrer le schéma (dans RAPPORT_GENERAL.txt section 3, ou le dessiner) :
-    3 services + 3 bases MySQL + flèches HTTP (emploi → catalogue / locaux).
-    Insister sur : database per service, couplage unidirectionnel, Docker Compose.
+  ORDRE DES TESTS :
+    TEST 1 → GET /api/locaux
+             → 10 salles (9 DISPONIBLE, 1 EN_MAINTENANCE)
+
+    TEST 2 → GET /api/locaux/disponibles?capaciteMin=100
+             → AMPHI-A et AMPHI-B seulement
+
+    TEST 5 → PATCH réserver salle 1 ★★
+             curl -i -X PATCH "http://localhost:8082/api/locaux/1/disponibilite?valeur=OCCUPE"
+             → HTTP 200, disponibilite "OCCUPE"
+
+    TEST 2 → Re-lister disponibles capaciteMin=100
+             → AMPHI-A a DISPARU de la liste !
+
+    TEST 6 → PATCH libérer salle 1
+             curl -i -X PATCH "http://localhost:8082/api/locaux/1/disponibilite?valeur=DISPONIBLE"
+             → HTTP 200, disponibilite "DISPONIBLE"
+
+  ⚠ IMPORTANT POUR LA SUITE :
+    La salle 1 DOIT être DISPONIBLE avant le MOMENT 3 (Ayoub).
+    Si TEST 6 a été fait → OK.
+
+  DIRE EN CONCLUSION (Amine) :
+    « Gestion des salles avec endpoint PATCH de disponibilité. C'est cet
+     endpoint que l'orchestrateur appelle pour réserver et libérer. »
+
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  MOMENT 3 — SERVICE EMPLOI-DU-TEMPS (~4 min) — AYOUB ★★★ CŒUR DU PROJET │
+  │  FICHIER : DEMO_TEST_EMPLOI_DU_TEMPS.txt                                 │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  OUTIL : Postman fortement recommandé (POST JSON visible à l'écran)
+
+  PRÉREQUIS : salle id=1 DISPONIBLE, aucune séance planifiée (ou docker compose down -v)
+
+  ORDRE DES TESTS :
+    TEST 1 → GET /api/emploi-du-temps
+             → [] (vide)
+
+    TEST 3 → POST planifier séance ★★★
+             curl -X POST http://localhost:8083/api/emploi-du-temps \
+               -H "Content-Type: application/json" \
+               -d '{"coursId":1,"localId":1,"jour":"LUNDI","heureDebut":"08:00","heureFin":"10:00","semestre":"S2-2026","type":"COURS_MAGISTRAL"}'
+             → HTTP 201, séance id=1
+
+    EXPLIQUER pendant le POST :
+      « Mon service a appelé catalogue (cours 1 existe ?), locaux (salle libre ?),
+       vérifié qu'il n'y a pas de conflit, PATCH la salle en OCCUPE, puis INSERT. »
+
+    TEST 4 → PREUVE orchestration ★★
+             curl http://localhost:8082/api/locaux/1
+             → disponibilite "OCCUPE" (était DISPONIBLE avant !)
+
+    TEST 5 → CONFLIT HORAIRE ★★★ MOMENT FORT
+             curl -i -X POST http://localhost:8083/api/emploi-du-temps \
+               -H "Content-Type: application/json" \
+               -d '{"coursId":2,"localId":1,"jour":"LUNDI","heureDebut":"09:00","heureFin":"11:00","semestre":"S2-2026","type":"TD"}'
+             → HTTP 409 Conflict
+             « Créneau 09:00-11:00 chevauche 08:00-10:00 → algorithme HeureUtil »
+
+    TEST 6 → Créneau consécutif OK
+             POST heureDebut 10:00 heureFin 12:00 → HTTP 201
+             « Pas de chevauchement : 10:00 = fin du créneau précédent »
+
+    TEST 7 → Cours inexistant
+             coursId 9999 → HTTP 400
+             « Vérification inter-services vers catalogue »
+
+    TEST 9 → GET /api/emploi-du-temps/jour/LUNDI
+             → 2 séances du lundi
+
+  DIRE EN CONCLUSION (Ayoub) :
+    « Orchestration complète : appels HTTP vers catalogue et locaux, détection
+     de conflits 409, réservation automatique des salles. C'est le cœur de
+     l'architecture microservices. »
+
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  MOMENT 4 — TESTS AUTOMATISÉS (~1 min) — Ayoub ou n'importe qui         │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  OUTIL : Git Bash uniquement
+
+  COMMANDE (MODE A — Docker direct) :
+    chmod +x test.sh
+    ./test.sh
+
+  COMMANDE (MODE B — Vagrant depuis Windows) :
+    CATALOGUE_URL=http://localhost:18081 \
+    LOCAUX_URL=http://localhost:18082 \
+    EMPLOI_URL=http://localhost:18083 \
+    ./test.sh
+
+  COMMANDE (MODE B — dans la VM) :
+    vagrant ssh k3s-master -c "cd /home/vagrant/projet2-planification && ./test.sh"
+
+  COMMANDE (MODE C — K8s) :
+    CATALOGUE_URL=http://localhost:30081 \
+    LOCAUX_URL=http://localhost:30082 \
+    EMPLOI_URL=http://localhost:30083 \
+    ./test.sh
+
+  RÉSULTAT ATTENDU :
+    14 lignes [PASS] en vert
+    RÉSULTAT GLOBAL : SUCCÈS
+
+  CE QUE FAIT test.sh (14 tests) :
+    1. Attente services ready
+    2. POST créer cours (201)
+    3. POST créer local (201)
+    4. POST planifier séance (201)
+    5. POST conflit horaire (409)
+    6. GET séances par jour (200)
+    7. DELETE séance (204)
+    8. Vérifier salle redevenue DISPONIBLE
+    9-14. Tests endpoints catalogue et locaux (GET)
+
+  DIRE :
+    « Ce script valide automatiquement tout le flux bout-en-bout :
+     création, planification, conflit, lecture, suppression, libération salle. »
+
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  MOMENT 5 — ARCHITECTURE & PHASES (~1-2 min) — tous                      │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  POINTS À MENTIONNER :
+    • Database per service (3 MySQL indépendantes)
+    • Pas de FK entre bases → intégrité par appels HTTP
+    • Docker Compose Phase 2 (6 conteneurs, réseau planification-net)
+    • Phase 3 Vagrant : VM Ubuntu reproductible (optionnel)
+    • Phase 4 K8s : StatefulSet MySQL, Deployment WildFly, Ingress (optionnel)
+    • Healthchecks Docker + probes Kubernetes
+
+  COMMANDES BONUS RAPIDES :
+    docker compose ps                    → Phase 2
+    vagrant status                       → Phase 3
+    kubectl get pods -n planification    → Phase 4
 
 ================================================================================
-  PARTIE D — PAR QUEL FICHIER COMMENCER ? (résumé simple)
+  PARTIE 6 — TESTS AUTOMATIQUES (test.sh) EN DÉTAIL
 ================================================================================
 
-  ORDRE DES FICHIERS DE TEST À OUVRIR ET SUIVRE :
+  OÙ LANCER :
+    Git Bash, dossier racine projet2-planification
 
-    1er → GUIDE_DEMO_COMPLET.txt        (CE FICHIER — vue d'ensemble)
-    2e  → DEMO_TEST_CATALOGUE.txt       (Aymane présente)
-    3e  → DEMO_TEST_LOCAUX.txt          (Amine présente)
-    4e  → DEMO_TEST_EMPLOI_DU_TEMPS.txt (Ayoub présente — le plus important) ★
+  VARIABLES D'ENVIRONNEMENT (si ports différents) :
+    CATALOGUE_URL=http://localhost:8081   (défaut)
+    LOCAUX_URL=http://localhost:8082      (défaut)
+    EMPLOI_URL=http://localhost:8083      (défaut)
 
-  CONSEIL : garde ces 4 fichiers ouverts dans des onglets de l'éditeur,
-  et Postman ouvert à côté. Tu n'as qu'à copier-coller les commandes.
+  EXEMPLES :
+    # Vagrant depuis Windows
+    CATALOGUE_URL=http://localhost:18081 LOCAUX_URL=http://localhost:18082 EMPLOI_URL=http://localhost:18083 ./test.sh
+
+    # Kubernetes NodePort
+    CATALOGUE_URL=http://localhost:30081 LOCAUX_URL=http://localhost:30082 EMPLOI_URL=http://localhost:30083 ./test.sh
+
+  INTERPRÉTATION :
+    [PASS] vert     → test réussi
+    [FAIL] rouge    → voir PARTIE 9 dépannage
+  Exit code 0       → tout OK
+  Exit code 1       → au moins un échec
+
+  CONSEIL DÉMO :
+    Montrer 2-3 requêtes Postman à la main (plus pédagogique),
+    PUIS lancer ./test.sh pour prouver la validation automatique.
 
 ================================================================================
-  PARTIE E — SI TU DÉMONTRES SEUL (sans Aymane ni Amine)
+  PARTIE 7 — DÉMO SEUL (5 minutes, sans Aymane ni Amine)
 ================================================================================
 
-  Si tu présentes seul, fais tout dans cet ordre court (5 minutes) :
+  Si tu présentes seul, cet ordre suffit :
 
-    1. docker compose ps                       → montrer 6 conteneurs healthy
-    2. DEMO_TEST_EMPLOI_DU_TEMPS TEST 3        → planifier (201)
-    3. DEMO_TEST_EMPLOI_DU_TEMPS TEST 4        → salle OCCUPE (orchestration)
-    4. DEMO_TEST_EMPLOI_DU_TEMPS TEST 5        → conflit (409) ★
-    5. ./test.sh                               → 14 tests verts
+    1. docker compose ps
+       → 6 conteneurs healthy
 
-  Ces 5 étapes suffisent à prouver que toute l'architecture fonctionne.
+    2. Navigateur : http://localhost:8081/api/cours
+       → 10 cours
+
+    3. DEMO_TEST_EMPLOI_DU_TEMPS — TEST 3
+       → POST planifier séance → 201
+
+    4. DEMO_TEST_EMPLOI_DU_TEMPS — TEST 4
+       → curl locaux/1 → salle OCCUPE (preuve orchestration)
+
+    5. DEMO_TEST_EMPLOI_DU_TEMPS — TEST 5
+       → POST conflit → 409 ★
+
+    6. ./test.sh
+       → 14 [PASS]
+
+    7. Expliquer schéma microservices (30 s)
+
+  Ces 7 étapes prouvent toute l'architecture.
 
 ================================================================================
-  PARTIE F — DÉPANNAGE (si quelque chose ne marche pas)
+  PARTIE 8 — BONUS : MONTRER VAGRANT OU KUBERNETES (2-3 min)
 ================================================================================
 
-  PROBLÈME : un conteneur n'est pas "healthy"
-    → Attends 30-60 s de plus (WildFly est lent), puis : docker compose ps
-    → Voir les logs : docker compose logs service-emploi-du-temps
+  BONUS VAGRANT (Phase 3)
+  -----------------------
+    DIRE : « L'application peut aussi tourner dans une VM Ubuntu provisionnée
+            par Vagrant, sans dépendre de Docker Desktop sur Windows. »
 
-  PROBLÈME : curl renvoie une erreur sous PowerShell
-    → Utilise GIT BASH, pas PowerShell (PowerShell casse le JSON avec -d).
-    → Ou utilise Postman.
+    MONTRER :
+      vagrant status
+      vagrant ssh k3s-master -c "docker compose ps"
+      http://localhost:18081/api/cours  (depuis Windows)
 
-  PROBLÈME : les IDs ne correspondent pas (cours/salle introuvable)
-    → Tu as sûrement déjà modifié les données. Repars propre :
+  BONUS KUBERNETES (Phase 4)
+  --------------------------
+    DIRE : « En Phase 4, on déploie sur Kubernetes : StatefulSets pour MySQL,
+            Deployments pour WildFly, Services et Ingress Traefik. »
+
+    MONTRER :
+      kubectl get pods -n planification
+      kubectl get svc -n planification
+      http://localhost:30081/api/cours
+
+    Fichiers à citer : k8s/kustomization.yaml, k8s/apps/, k8s/databases/
+
+================================================================================
+  PARTIE 9 — DÉPANNAGE COMPLET
+================================================================================
+
+  PROBLÈME : conteneur pas "healthy"
+  ----------------------------------
+    → Attendre 60 s de plus
+    → docker compose logs service-catalogue
+    → docker compose logs catalogue-db
+
+  PROBLÈME : curl erreur sous PowerShell
+  --------------------------------------
+    → Utiliser GIT BASH ou Postman
+    → PowerShell casse le JSON avec -d '{"..."}'
+
+  PROBLÈME : HTTP 500 sur POST cours (code trop long)
+  ---------------------------------------------------
+    → Le champ code est VARCHAR(20) max
+    → Utiliser codes courts : INF311, TST-123 (pas TEST-COURS-12345678901)
+
+  PROBLÈME : IDs cours/salle ne correspondent pas
+  -----------------------------------------------
+    → Données modifiées lors d'une démo précédente
+    → Repartir propre :
         docker compose down -v
         docker compose up --build -d
       (attendre 2 min)
 
-  PROBLÈME : "port already in use" (8081/8082/8083 occupé)
-    → Un ancien conteneur tourne encore. Fais : docker compose down
-    → Puis relance : docker compose up --build -d
+  PROBLÈME : port 8081/8082/8083 déjà utilisé (Docker local)
+  ----------------------------------------------------------
+    → docker compose down (arrêter stack locale)
+    → Ou utiliser Vagrant (ports 18081-18083)
+    → Ou changer ports dans compose.yaml
 
-  PROBLÈME : conflit 409 attendu mais j'obtiens 201
-    → La salle a peut-être été libérée ou les données réinitialisées.
-    → Refais TEST 3 (planifier) PUIS TEST 5 (conflit) dans l'ordre.
+  PROBLÈME : Vagrant "port 8081 already in use"
+  -----------------------------------------------
+    → Normal si Docker Desktop tourne sur Windows
+    → Le Vagrantfile utilise déjà 18081-18083
+    → Si échec : vagrant destroy k3s-master -f && vagrant up k3s-master
 
-  PROBLÈME : la démo plante complètement
-    → Plan B : lance simplement ./test.sh qui prouve tout automatiquement.
+  PROBLÈME : network planification-net external not found
+  -------------------------------------------------------
+    → Corrigé dans le projet (réseau créé automatiquement)
+    → Si persiste : docker network create planification-net
+
+  PROBLÈME : conflit 409 attendu mais reçu 201
+  --------------------------------------------
+    → Pas de séance précédente sur le même créneau
+    → Refaire TEST 3 (planifier 08:00-10:00) PUIS TEST 5 (09:00-11:00)
+
+  PROBLÈME : salle pas DISPONIBLE pour Ayoub (MOMENT 3)
+  -----------------------------------------------------
+    → Amine doit faire TEST 6 (PATCH DISPONIBLE) avant
+    → Ou : curl -X PATCH "http://localhost:8082/api/locaux/1/disponibilite?valeur=DISPONIBLE"
+
+  PROBLÈME : vagrant ssh échoue "VM must be running"
+  --------------------------------------------------
+    → vagrant up k3s-master n'a pas réussi
+    → Vérifier VirtualBox, ports, vagrant up k3s-master
+
+  PROBLÈME : test.sh échoue sur Vagrant depuis Windows
+  ----------------------------------------------------
+    → Utiliser les bonnes URLs :
+        CATALOGUE_URL=http://localhost:18081 LOCAUX_URL=http://localhost:18082 EMPLOI_URL=http://localhost:18083 ./test.sh
+    → Ou lancer test.sh DANS la VM (ports 8081 par défaut)
+
+  PROBLÈME : démo plante complètement — PLAN B
+  --------------------------------------------
+    → Lancer uniquement ./test.sh
+    → Montrer docker compose ps
+    → Expliquer l'architecture avec RAPPORT_GENERAL.txt
 
 ================================================================================
-  PARTIE G — ARRÊT PROPRE (après la démo)
+  PARTIE 10 — ARRÊT PROPRE APRÈS LA DÉMO
 ================================================================================
 
-  Pour arrêter les conteneurs (sans supprimer les données) :
+  DOCKER (Phase 2)
+  ----------------
+    Arrêter sans supprimer données :
       docker compose down
 
-  Pour tout supprimer (conteneurs + données) :
+    Tout supprimer (conteneurs + volumes MySQL) :
       docker compose down -v
 
-================================================================================
-  CHECKLIST FINALE (à cocher juste avant de présenter)
-================================================================================
+  VAGRANT (Phase 3)
+  -----------------
+    Arrêter conteneurs dans la VM :
+      vagrant ssh k3s-master -c "/home/vagrant/projet2-planification/vagrant/stop-app.sh"
 
-  ☐ Docker Desktop est "Running"
-  ☐ docker compose up --build -d a été lancé il y a > 2 minutes
-  ☐ docker compose ps montre 6 conteneurs "healthy"
-  ☐ Git Bash est ouvert dans le dossier du projet
-  ☐ Postman est ouvert avec la collection importée
-  ☐ Les 4 fichiers DEMO_*.txt sont ouverts dans l'éditeur
-  ☐ J'ai testé GET http://localhost:8081/api/cours dans le navigateur (ça répond)
-  ☐ Chaque membre sait quel fichier il présente
+    Arrêter la VM (garde le disque) :
+      vagrant halt k3s-master
 
-================================================================================
-  RÉSUMÉ ULTRA-COURT (si tu ne lis qu'une chose)
-================================================================================
+    Supprimer la VM complètement :
+      vagrant destroy k3s-master -f
 
-  1. Docker Desktop ON
-  2. docker compose down -v  puis  docker compose up --build -d
-  3. Attendre 2 min, puis docker compose ps (6 healthy)
-  4. Aymane → DEMO_TEST_CATALOGUE.txt
-  5. Amine  → DEMO_TEST_LOCAUX.txt
-  6. Ayoub  → DEMO_TEST_EMPLOI_DU_TEMPS.txt (planifier → salle OCCUPE → conflit 409)
-  7. ./test.sh (14 tests verts)
-  8. docker compose down
+  KUBERNETES (Phase 4)
+  --------------------
+    ./k8s/scripts/undeploy.sh
+    # ou : kubectl delete -k k8s/
 
 ================================================================================
-  FIN DU GUIDE MAÎTRE DE DÉMO
+  PARTIE 11 — CHECKLIST FINALE (cocher avant de présenter)
+================================================================================
+
+  PRÉPARATION GÉNÉRALE
+  ☐ Docker Desktop "Running" (si Mode A)
+  ☐ Git Bash ouvert dans le dossier projet
+  ☐ Postman ouvert avec postman_collection.json importée
+  ☐ 4 fichiers ouverts : GUIDE_DEMO + 3x DEMO_TEST_*.txt
+  ☐ Chaque membre sait son fichier et ses tests
+
+  MODE A — DOCKER (recommandé)
+  ☐ docker compose down -v puis up --build -d lancé il y a > 2 min
+  ☐ docker compose ps → 6 conteneurs healthy
+  ☐ http://localhost:8081/api/cours répond (10 cours)
+  ☐ Salle id=1 est DISPONIBLE (curl locaux/1)
+
+  MODE B — VAGRANT (si utilisé)
+  ☐ vagrant up k3s-master terminé sans erreur
+  ☐ http://localhost:18081/api/cours répond
+  ☐ vagrant ssh k3s-master fonctionne
+
+  MODE C — K8s (si utilisé)
+  ☐ kubectl get pods -n planification → 6 pods Running
+  ☐ http://localhost:30081/api/cours répond
+
+  TEST DE SECOURS
+  ☐ ./test.sh testé la veille → SUCCÈS
+
+================================================================================
+  RÉSUMÉ ULTRA-COURT (si tu n'as que 30 secondes)
+================================================================================
+
+  1. docker compose down -v && docker compose up --build -d
+  2. Attendre 2 min → docker compose ps (6 healthy)
+  3. Aymane → DEMO_TEST_CATALOGUE.txt (CRUD cours)
+  4. Amine  → DEMO_TEST_LOCAUX.txt (PATCH disponibilité)
+  5. Ayoub  → DEMO_TEST_EMPLOI_DU_TEMPS.txt (planifier → OCCUPE → 409)
+  6. ./test.sh (14 PASS)
+  7. docker compose down
+
+================================================================================
+  TABLEAU RÉCAPITULATIF — QUI FAIT QUOI
+================================================================================
+
+  ┌──────────┬─────────────────────┬──────────┬──────────────────────────────┐
+  │ Membre   │ Service             │ Port     │ Fichier démo                 │
+  ├──────────┼─────────────────────┼──────────┼──────────────────────────────┤
+  │ Aymane   │ service-catalogue   │ 8081     │ DEMO_TEST_CATALOGUE.txt      │
+  │ Amine    │ service-locaux      │ 8082     │ DEMO_TEST_LOCAUX.txt         │
+  │ Ayoub    │ service-emploi      │ 8083     │ DEMO_TEST_EMPLOI_DU_TEMPS.txt│
+  └──────────┴─────────────────────┴──────────┴──────────────────────────────┘
+
+  Tests phares à ne pas manquer :
+    Amine  → PATCH salle OCCUPE (TEST 5)
+    Ayoub  → POST planifier 201 (TEST 3)
+    Ayoub  → salle devenue OCCUPE (TEST 4) — preuve orchestration
+    Ayoub  → conflit 409 (TEST 5) — moment fort technique
+    Tous   → ./test.sh 14 PASS
+
+================================================================================
+  FIN DU GUIDE MAÎTRE DE DÉMO — Bonne soutenance !
 ================================================================================

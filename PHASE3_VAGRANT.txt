@@ -166,6 +166,19 @@
     → Vérifier que la virtualisation est activée dans le BIOS
     → Désactiver Hyper-V si conflit (Windows) : optionalfeatures
 
+  PROBLÈME : "Timed out while waiting for the machine to boot" (SSH)
+    → Le Vagrantfile fixe boot_timeout à 600 s (10 min) — relancer :
+        vagrant destroy k3s-master -f
+        vagrant up k3s-master
+    → Ouvrir VirtualBox : la VM "ump-planification-k3s-master" tourne-t-elle ?
+        • Si écran noir longtemps : attendre 5-10 min (premier boot Ubuntu)
+        • Si bloqué sur réseau : VirtualBox → Fichier → Outils → Réseau hôte
+          → créer un adaptateur Host-Only (192.168.56.1)
+    → Décommenter vb.gui = true dans Vagrantfile pour voir l'écran VM
+    → RAM insuffisante sur l'hôte : baisser vb.memory à 3072 dans Vagrantfile
+    → Conflit Hyper-V / WSL2 : VirtualBox 7 nécessite souvent :
+        Désactiver "Plateforme de machine virtuelle" OU utiliser Docker direct (Phase 2)
+
   PROBLÈME : ports 8081/8082/8083 déjà utilisés sur Windows
     → Arrêter Docker Desktop local : docker compose down
     → Ou modifier les host: dans Vagrantfile (ex: host: 18081)

@@ -49,4 +49,5 @@ volumes:
 
 networks:
   planification-net:
-    external: true
+    name: planification-net
+    driver: bridge
