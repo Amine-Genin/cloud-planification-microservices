@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: locaux-app-config
+  namespace: planification
+  labels:
+    app: service-locaux
+data:
+  DATASOURCE_NAME: LocauxDS
+  DB_HOST: locaux-db
+  DB_PORT: "3306"
+  DB_NAME: locaux_db
+  DB_USER: locaux_user

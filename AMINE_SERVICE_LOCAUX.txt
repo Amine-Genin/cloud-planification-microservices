@@ -1,0 +1,612 @@
+================================================================================
+  FICHE PERSONNELLE DE SOUTENANCE — AMINE
+  SERVICE : service-locaux (GESTION DES SALLES / LOCAUX)
+  Projet 2 — Planification & Logistique académique — UMP Oujda
+  Master M2I — Cloud Computing — Semestre 2 — 2025/2026
+================================================================================
+
+  RÉPARTITION DU TRINÔME :
+    • Ayoub  → service-emploi-du-temps  (orchestrateur)
+    • Aymane → service-catalogue
+    • Amine  → service-locaux      (CE DOCUMENT) ★
+
+  CE DOCUMENT EST POUR TOI (AMINE).
+  Il explique TOUT ce que tu dois savoir et savoir dire sur TON service
+  pour la soutenance : rôle, code, fichiers, flux, questions du prof.
+
+================================================================================
+  TABLE DES MATIÈRES
+================================================================================
+
+  1.  Le rôle de mon service en une phrase
+  2.  Rôle et responsabilités de service-locaux
+  3.  Vue d'ensemble : où est mon service dans l'architecture
+  4.  Tous mes fichiers (carte du code à connaître)
+  5.  Détail fichier par fichier
+      5.1  Local.java              (entité / modèle) ★
+      5.2  TypeLocal.java          (énumération)
+      5.3  DisponibiliteLocal.java (énumération) ★
+      5.4  LocalRepository.java    (accès base de données) ★
+      5.5  LocalService.java       (logique métier) ★
+      5.6  LocalResource.java      (endpoints REST) ★
+  6.  L'endpoint PATCH disponibilité (LE plus important pour le projet) ★
+  7.  L'architecture en couches
+  8.  Mes endpoints REST (tableau)
+  9.  Exemples d'appels REST
+  10. Ma base de données (table locaux)
+  11. Mon rôle dans la communication inter-services
+  12. Démonstration : ce que je montre au prof
+  13. Questions que le prof VA me poser (avec réponses)
+  14. Phrases clés à retenir par cœur
+  15. Schéma à dessiner au tableau
+
+================================================================================
+  1. LE RÔLE DE MON SERVICE EN UNE PHRASE
+================================================================================
+
+  « Mon service, service-locaux, gère les salles de l'université (amphis, salles
+   de cours, salles de TP, laboratoires) : un CRUD complet avec en plus la
+   gestion de la DISPONIBILITÉ de chaque salle (DISPONIBLE / OCCUPE /
+   EN_MAINTENANCE). »
+
+  Dans notre projet à 3 microservices :
+
+    service-catalogue  → gère les COURS    (Aymane)
+    service-locaux     → gère les SALLES   (MON SERVICE) ★
+    service-emploi-du-temps → PLANIFIE     (Ayoub, orchestrateur)
+
+  MON SERVICE EST AUTONOME : il n'appelle aucun autre service. Mais il EST
+  appelé par service-emploi-du-temps (Ayoub) qui vient :
+    • vérifier si une salle est disponible
+    • réserver une salle (la passer à OCCUPE)
+    • libérer une salle (la repasser à DISPONIBLE)
+
+================================================================================
+  2. RÔLE ET RESPONSABILITÉS DE service-locaux
+================================================================================
+
+  IDENTITÉ TECHNIQUE :
+    Conteneur Docker : service-locaux
+    Port hôte        : 8082  →  http://localhost:8082/api/locaux
+    Port interne     : 8080  (WildFly dans le conteneur)
+    Base de données  : locaux_db  (conteneur locaux-db, MySQL 8)
+    Package Java     : ma.ump.locaux
+    Fichier déployé  : service-locaux.war
+
+  RESPONSABILITÉS :
+    1. CRUD complet des salles (créer, lire, modifier, supprimer)
+    2. Filtrer les salles DISPONIBLES (avec capacité minimale)
+    3. Filtrer les salles par TYPE (AMPHI, SALLE_TP, etc.)
+    4. CHANGER LA DISPONIBILITÉ d'une salle via PATCH ★ (le plus important)
+
+  CE QUE MON SERVICE NE FAIT PAS :
+    • Il n'appelle aucun autre service (totalement autonome)
+    • Il ne connaît ni les cours ni les séances
+    • Il ne décide pas QUAND réserver une salle — c'est emploi-du-temps qui
+      le demande. Moi je ne fais qu'exécuter le changement d'état.
+
+  PHRASE À DIRE AU PROF :
+  « Mon service est le service de référence pour les salles. Sa particularité
+   est l'endpoint PATCH de disponibilité : c'est par lui que l'orchestrateur
+   réserve et libère les salles lors de la planification. »
+
+================================================================================
+  3. VUE D'ENSEMBLE : OÙ EST MON SERVICE DANS L'ARCHITECTURE
+================================================================================
+
+        [Client : Postman / curl / test.sh]
+                      │
+                      │ GET/POST http://localhost:8082/api/locaux
+                      ↓
+    ┌─────────────────────────────────────────────────────────┐
+    │           service-locaux (MON SERVICE)                   │
+    │                                                          │
+    │   LocalResource    (reçoit le HTTP, dont PATCH dispo)    │
+    │            ↓                                             │
+    │   LocalService     (logique : validation, disponibilité) │
+    │            ↓                                             │
+    │   LocalRepository  (accès base locaux_db)                │
+    │            ↓                                             │
+    │   locaux_db (MySQL — table locaux)                       │
+    └─────────────────────────────────────────────────────────┘
+                      ▲
+                      │ GET /api/locaux/disponibles  (la salle est libre ?)
+                      │ PATCH /api/locaux/{id}/disponibilite?valeur=OCCUPE (réserver)
+                      │ PATCH /api/locaux/{id}/disponibilite?valeur=DISPONIBLE (libérer)
+                      │
+            ┌─────────────────────────────┐
+            │  service-emploi-du-temps     │
+            │  (Ayoub) m'appelle           │
+            └─────────────────────────────┘
+
+  RÈGLE D'OR : Mon service est appelé par emploi-du-temps, mais lui n'appelle
+  jamais personne. C'est un service AUTONOME (couplage unidirectionnel).
+
+================================================================================
+  4. TOUS MES FICHIERS (carte du code à connaître)
+================================================================================
+
+  service-locaux/
+  │
+  ├── compose.yaml        ← config Docker (mon app + locaux-db)
+  ├── Dockerfile          ← build Maven + déploiement WildFly
+  ├── init.sql            ← création table locaux + 10 salles initiales
+  ├── pom.xml             ← dépendances Maven (Jakarta EE 10)
+  │
+  └── src/main/
+      ├── java/ma/ump/locaux/
+      │   │
+      │   ├── entity/                       ← MODÈLE DE DONNÉES
+      │   │   ├── Local.java                 → la salle (table locaux) ★
+      │   │   ├── TypeLocal.java             → enum AMPHI, SALLE_COURS, SALLE_TP, LABO
+      │   │   └── DisponibiliteLocal.java    → enum DISPONIBLE, OCCUPE, EN_MAINTENANCE ★
+      │   │
+      │   ├── repository/                   ← ACCÈS BASE DE DONNÉES
+      │   │   └── LocalRepository.java       → CRUD + findDisponibles + findByType ★
+      │   │
+      │   ├── service/                      ← LOGIQUE MÉTIER
+      │   │   └── LocalService.java          → validation + mettreAJourDisponibilite ★
+      │   │
+      │   └── rest/                         ← API REST (HTTP)
+      │       ├── LocalResource.java         → endpoints + PATCH disponibilité ★
+      │       └── ApplicationConfig.java     → config JAX-RS (chemin /api)
+      │
+      ├── resources/META-INF/
+      │   └── persistence.xml               → config JPA (locauxPU + datasource)
+      │
+      └── webapp/WEB-INF/
+          ├── beans.xml                     → active CDI
+          └── jboss-web.xml                 → context-root = "/"
+
+  LES FICHIERS À MAÎTRISER (marqués ★) :
+    1. Local.java               → le modèle, beaucoup de champs (équipements)
+    2. DisponibiliteLocal.java  → l'enum des états (cœur de la gestion d'état)
+    3. LocalRepository.java     → findDisponibles (utilisé par Ayoub)
+    4. LocalService.java        → mettreAJourDisponibilite (le PATCH)
+    5. LocalResource.java       → l'endpoint PATCH disponibilité ★
+
+================================================================================
+  5. DÉTAIL FICHIER PAR FICHIER
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+  5.1  Local.java  (ENTITÉ / MODÈLE DE DONNÉES) ★
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : représente une salle. Classe Java mappée sur la table SQL "locaux".
+
+  CHAMPS (= colonnes de la table) :
+    id               → Long, clé primaire auto-incrémentée
+    code             → String, code unique (ex: "AMPHI-A"), max 30 caractères
+    nom              → String, nom complet (ex: "Amphi Ibn Khaldoun")
+    type             → TypeLocal (enum) : AMPHI, SALLE_COURS, SALLE_TP, LABO
+    capacite         → int, nombre de places
+    batiment         → String, bâtiment (ex: "Bloc C")
+    etage            → int, étage (0 = rez-de-chaussée)
+    projecteur       → boolean, équipé d'un projecteur ?
+    tableauNumerique → boolean, tableau numérique interactif ?
+    climatisation    → boolean, climatisé ?
+    accessiblePMR    → boolean, accessible Personnes à Mobilité Réduite ?
+    disponibilite    → DisponibiliteLocal (enum) : DISPONIBLE / OCCUPE / EN_MAINTENANCE
+
+  ANNOTATIONS JPA À EXPLIQUER :
+    @Entity                    → cette classe est une table en base
+    @Table(name="locaux", uniqueConstraints=...) → table + contrainte unique sur code
+    @Id @GeneratedValue(IDENTITY) → clé primaire auto-incrémentée
+    @Column(nullable=false, unique=true, length=30) → contraintes sur "code"
+    @Enumerated(EnumType.STRING) → stocke les enums comme texte
+                                  ("AMPHI", "DISPONIBLE") au lieu de nombres
+
+  POINT IMPORTANT À DIRE AU PROF :
+  « Ma salle a beaucoup d'attributs, notamment des équipements (projecteur,
+   climatisation, accessibilité PMR). Le champ le plus important est
+   "disponibilite" : c'est lui que l'orchestrateur modifie pour réserver
+   ou libérer la salle. Par défaut, une salle est DISPONIBLE. »
+
+────────────────────────────────────────────────────────────────────────────────
+  5.2  TypeLocal.java  (ÉNUMÉRATION)
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : liste fermée des types de salles.
+
+  VALEURS :
+    AMPHI       → amphithéâtre (grande capacité, ex: 200 places)
+    SALLE_COURS → salle de cours standard
+    SALLE_TP    → salle de travaux pratiques
+    LABO        → laboratoire spécialisé
+
+  POURQUOI UN ENUM ?
+  → Sécurité : seules ces 4 valeurs sont acceptées. Un type invalide → erreur 400.
+
+────────────────────────────────────────────────────────────────────────────────
+  5.3  DisponibiliteLocal.java  (ÉNUMÉRATION) ★
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : les 3 états possibles d'une salle. C'est le cœur de la gestion d'état.
+
+  VALEURS :
+    DISPONIBLE     → la salle est libre et réservable
+    OCCUPE         → la salle est actuellement réservée (une séance est dessus)
+    EN_MAINTENANCE → la salle n'est pas utilisable (travaux, panne...)
+
+  CYCLE DE VIE D'UNE SALLE :
+    DISPONIBLE → (réservation par emploi-du-temps) → OCCUPE
+    OCCUPE     → (suppression de la séance)        → DISPONIBLE
+    EN_MAINTENANCE → jamais réservable automatiquement
+
+  POINT À DIRE :
+  « Une salle EN_MAINTENANCE n'apparaît pas dans la liste des salles
+   disponibles, donc l'orchestrateur ne peut pas la réserver. Dans notre
+   init.sql, l'amphi AMPHI-C est en maintenance pour illustrer ce cas. »
+
+────────────────────────────────────────────────────────────────────────────────
+  5.4  LocalRepository.java  (ACCÈS BASE DE DONNÉES) ★
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : toutes les opérations SQL sur la table "locaux" (locaux_db).
+
+  ANNOTATION : @Stateless + @PersistenceContext(unitName="locauxPU")
+
+  MÉTHODES :
+    findAll()              → SELECT tous les locaux (triés par code)
+    findById(id)           → recherche par clé primaire
+    findDisponibles(capMin)→ ★ salles DISPONIBLE avec capacité >= capMin
+    findByType(type)       → salles d'un type donné
+    create(local)          → INSERT
+    update(local)          → UPDATE
+    delete(id)             → DELETE
+    existsByCode(code,id)  → vérifie l'unicité du code
+
+  findDisponibles() — LA MÉTHODE IMPORTANTE :
+    "SELECT l FROM Local l WHERE l.disponibilite = DISPONIBLE
+     AND l.capacite >= :cap ORDER BY l.capacite"
+    → C'est CETTE méthode que l'orchestrateur appelle (via GET /disponibles)
+      pour savoir si une salle est libre avant de planifier.
+    → Elle filtre sur l'état DISPONIBLE ET une capacité minimale.
+
+────────────────────────────────────────────────────────────────────────────────
+  5.5  LocalService.java  (LOGIQUE MÉTIER) ★
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : contient les règles métier. Valide les salles et gère la disponibilité.
+
+  ANNOTATION : @Stateless + @Inject LocalRepository
+
+  MÉTHODES :
+    listerTous()                → toutes les salles
+    trouverParId(id)            → une salle
+    listerDisponibles(capMin)   → salles libres (capacité >= capMin)
+    listerParType(type)         → salles d'un type
+    creer(local)                → valide + vérifie unicité + crée
+    mettreAJour(id, local)      → met à jour une salle complète
+    mettreAJourDisponibilite(id, valeur) → ★ change SEULEMENT l'état
+    supprimer(id)               → supprime
+    validerLocal(...)           → validation des champs obligatoires
+
+  mettreAJourDisponibilite() — LA MÉTHODE CLÉ :
+    1. Vérifie que la valeur n'est pas nulle
+    2. Charge la salle existante (sinon erreur → 404)
+    3. Change uniquement le champ disponibilite
+    4. Sauvegarde
+    → C'est appelée par l'endpoint PATCH, utilisé par l'orchestrateur.
+
+  VALIDATION (validerLocal) :
+    code non vide, nom non vide, type non null, capacité > 0
+
+────────────────────────────────────────────────────────────────────────────────
+  5.6  LocalResource.java  (ENDPOINTS REST) ★
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : la porte d'entrée HTTP. Reçoit les requêtes, appelle LocalService.
+
+  ANNOTATIONS :
+    @Path("/locaux")       → URL de base : /api/locaux
+    @Produces / @Consumes(JSON)
+    @RequestScoped + @Inject LocalService
+
+  ENDPOINTS (méthodes) :
+    @GET                          listerTous()        → GET /api/locaux
+    @GET @Path("/{id}")            trouverParId()     → GET /api/locaux/{id}
+    @GET @Path("/disponibles")     listerDisponibles()→ GET .../disponibles?capaciteMin=30
+    @GET @Path("/type/{type}")     listerParType()    → GET .../type/SALLE_TP
+    @POST                          creer()            → POST /api/locaux
+    @PUT @Path("/{id}")            mettreAJour()      → PUT /api/locaux/{id}
+    @PATCH @Path("/{id}/disponibilite") mettreAJourDisponibilite() ★ → PATCH ...
+    @DELETE @Path("/{id}")         supprimer()        → DELETE /api/locaux/{id}
+
+  GESTION DES ERREURS :
+    Type invalide → 400 "Type de local invalide"
+    Valeur dispo invalide → 400 "Valeur de disponibilité invalide"
+    Salle introuvable → 404
+
+================================================================================
+  6. L'ENDPOINT PATCH DISPONIBILITÉ ★ (LE plus important pour le projet)
+================================================================================
+
+  C'EST LA PARTIE LA PLUS IMPORTANTE DE MON SERVICE.
+  C'est par cet endpoint que l'orchestrateur (Ayoub) réserve et libère les salles.
+
+  URL : PATCH /api/locaux/{id}/disponibilite?valeur=OCCUPE
+        PATCH /api/locaux/{id}/disponibilite?valeur=DISPONIBLE
+
+  EXEMPLE :
+    PATCH http://localhost:8082/api/locaux/1/disponibilite?valeur=OCCUPE
+    → HTTP 200
+    → { "id": 1, "code": "AMPHI-A", ..., "disponibilite": "OCCUPE" }
+
+  CE QUI SE PASSE :
+    1. Le Resource reçoit la valeur "OCCUPE" en query parameter
+    2. Il la convertit en enum DisponibiliteLocal.valueOf("OCCUPE")
+    3. Si la valeur est invalide (ex: "PRISE") → 400
+    4. Appelle LocalService.mettreAJourDisponibilite(1, OCCUPE)
+    5. La salle est mise à jour en base
+    6. Retourne la salle modifiée
+
+  POURQUOI PATCH ET PAS PUT ?
+  « PATCH modifie UN SEUL attribut (la disponibilité). PUT remplacerait toute
+   la salle : il faudrait renvoyer le nom, la capacité, les équipements, etc.
+   PATCH est la bonne sémantique REST pour changer juste un état. »
+
+  LIEN AVEC L'ORCHESTRATEUR (Ayoub) :
+    • Quand Ayoub planifie une séance → il appelle mon PATCH avec valeur=OCCUPE
+    • Quand Ayoub supprime une séance → il appelle mon PATCH avec valeur=DISPONIBLE
+    → Mon service ne décide rien : il exécute juste le changement d'état demandé.
+
+================================================================================
+  7. L'ARCHITECTURE EN COUCHES
+================================================================================
+
+    HTTP Request (JSON)
+        ↓
+    ┌────────────────────────────────────────────────┐
+    │ LocalResource  (couche REST / Présentation)     │
+    │ → reçoit le HTTP, gère le PATCH disponibilité   │
+    └────────────────────┬───────────────────────────┘
+                        ↓
+    ┌────────────────────────────────────────────────┐
+    │ LocalService   (couche Métier / Logique)        │
+    │ → valide, gère les changements d'état           │
+    └────────────────────┬───────────────────────────┘
+                        ↓
+    ┌────────────────────────────────────────────────┐
+    │ LocalRepository (couche Accès données / DAO)    │
+    │ → requêtes JPA (findDisponibles, findByType...) │
+    └────────────────────┬───────────────────────────┘
+                        ↓
+    ┌────────────────────────────────────────────────┐
+    │ locaux_db   (MySQL — table locaux)              │
+    └────────────────────────────────────────────────┘
+
+================================================================================
+  8. MES ENDPOINTS REST (TABLEAU)
+================================================================================
+
+  ┌────────┬──────────────────────────────────────┬──────────────────────────────┐
+  │ Verbe  │ URL                                  │ Description / Codes retour   │
+  ├────────┼──────────────────────────────────────┼──────────────────────────────┤
+  │ GET    │ /api/locaux                          │ Toutes les salles → 200      │
+  │ GET    │ /api/locaux/{id}                     │ Une salle par id → 200/404   │
+  │ GET    │ /api/locaux/disponibles?capaciteMin=30│ Salles libres cap>=30 → 200 │
+  │ GET    │ /api/locaux/type/SALLE_TP            │ Salles d'un type → 200/400   │
+  │ POST   │ /api/locaux                          │ Créer une salle → 201/400    │
+  │ PUT    │ /api/locaux/{id}                     │ Modifier une salle → 200...  │
+  │ PATCH  │ /api/locaux/{id}/disponibilite?valeur=│ Changer l'état → 200/400/404 │ ★
+  │ DELETE │ /api/locaux/{id}                     │ Supprimer → 204/404          │
+  └────────┴──────────────────────────────────────┴──────────────────────────────┘
+
+  LES 2 ENDPOINTS IMPORTANTS POUR LE PROJET :
+    GET  /api/locaux/disponibles  → Ayoub vérifie si la salle est libre
+    PATCH /api/locaux/{id}/disponibilite → Ayoub réserve/libère la salle
+
+================================================================================
+  9. EXEMPLES D'APPELS REST
+================================================================================
+
+  LISTER LES SALLES DISPONIBLES (capacité >= 30) :
+  ──────────────────────────────────────────────────
+    GET http://localhost:8082/api/locaux/disponibles?capaciteMin=30
+    → HTTP 200 + liste des salles DISPONIBLE avec capacité >= 30
+
+  RÉSERVER UNE SALLE (PATCH) :
+  ─────────────────────────────
+    curl -X PATCH "http://localhost:8082/api/locaux/1/disponibilite?valeur=OCCUPE"
+    → HTTP 200 + { ..., "disponibilite": "OCCUPE" }
+
+  LIBÉRER UNE SALLE (PATCH) :
+  ────────────────────────────
+    curl -X PATCH "http://localhost:8082/api/locaux/1/disponibilite?valeur=DISPONIBLE"
+    → HTTP 200 + { ..., "disponibilite": "DISPONIBLE" }
+
+  FILTRER PAR TYPE :
+  ──────────────────
+    GET http://localhost:8082/api/locaux/type/SALLE_TP
+    → HTTP 200 + les salles de TP (TP-L1, TP-L2)
+
+  CRÉER UNE SALLE :
+  ─────────────────
+    POST http://localhost:8082/api/locaux
+    Body : {"code":"SALLE-E101","nom":"Salle E101","type":"SALLE_COURS",
+            "capacite":50,"batiment":"Bloc E","etage":1}
+    → HTTP 201
+
+================================================================================
+  10. MA BASE DE DONNÉES (table locaux)
+================================================================================
+
+  Base : locaux_db (conteneur locaux-db, MySQL 8)
+  Unité de persistance JPA : locauxPU (dans persistence.xml)
+
+  CREATE TABLE locaux (
+    id               BIGINT NOT NULL AUTO_INCREMENT,
+    code             VARCHAR(30) NOT NULL,
+    nom              VARCHAR(255) NOT NULL,
+    type             VARCHAR(20) NOT NULL,
+    capacite         INT NOT NULL,
+    batiment         VARCHAR(100),
+    etage            INT NOT NULL,
+    projecteur       TINYINT(1) NOT NULL DEFAULT 0,
+    tableauNumerique TINYINT(1) NOT NULL DEFAULT 0,
+    climatisation    TINYINT(1) NOT NULL DEFAULT 0,
+    accessiblePMR    TINYINT(1) NOT NULL DEFAULT 0,
+    disponibilite    VARCHAR(20) NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uk_local_code UNIQUE (code)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+  DONNÉES INITIALES (init.sql) — 10 salles pré-chargées :
+    AMPHI-A     → Amphi Ibn Khaldoun    (200 places, DISPONIBLE)
+    AMPHI-B     → Amphi Ibn Rochd       (180 places, DISPONIBLE)
+    SALLE-C101  → Salle Cours 101        (45 places, DISPONIBLE)
+    SALLE-C102  → Salle Cours 102        (40 places, DISPONIBLE)
+    TP-L1       → Labo Réseaux L1        (30 places, DISPONIBLE)
+    TP-L2       → Labo Systèmes L2       (28 places, DISPONIBLE)
+    LABO-IA     → Labo Intelligence Artificielle (25 places, DISPONIBLE)
+    LABO-SEC    → Labo Cybersécurité     (22 places, DISPONIBLE)
+    SALLE-D201  → Salle TD D201          (35 places, DISPONIBLE)
+    AMPHI-C     → Amphi Al Qarawiyyin   (250 places, EN_MAINTENANCE) ← non réservable
+
+================================================================================
+  11. MON RÔLE DANS LA COMMUNICATION INTER-SERVICES
+================================================================================
+
+  MON SERVICE EST APPELÉ, IL N'APPELLE PERSONNE :
+
+    service-emploi-du-temps (Ayoub)
+            │ GET http://service-locaux:8080/api/locaux/disponibles
+            │     (la salle est-elle libre ?)
+            │ PATCH http://service-locaux:8080/api/locaux/{id}/disponibilite?valeur=OCCUPE
+            │     (réserver la salle)
+            │ PATCH http://service-locaux:8080/api/locaux/{id}/disponibilite?valeur=DISPONIBLE
+            │     (libérer la salle)
+            ↓
+    service-locaux (MOI)
+            → exécute la demande et répond
+
+  CE QUE JE DOIS RETENIR :
+  « Mon service ne sait pas que emploi-du-temps existe. Il répond juste aux
+   requêtes. C'est l'orchestrateur qui décide QUAND réserver. Moi je gère
+   seulement l'état de mes salles. »
+
+  POURQUOI L'URL EST "service-locaux:8080" CÔTÉ DOCKER ?
+  → Sur le réseau Docker "planification-net", mon conteneur est joignable par
+    son nom DNS "service-locaux" sur le port interne 8080.
+  → Depuis le PC (Postman), on utilise http://localhost:8082 (port exposé).
+
+================================================================================
+  12. DÉMONSTRATION : CE QUE JE MONTRE AU PROF
+================================================================================
+
+  1. Lister les 10 salles initiales :
+     GET http://localhost:8082/api/locaux
+     → les 10 salles (dont AMPHI-C en maintenance)
+
+  2. Lister les salles disponibles avec capacité >= 100 :
+     GET http://localhost:8082/api/locaux/disponibles?capaciteMin=100
+     → AMPHI-A et AMPHI-B (mais PAS AMPHI-C qui est en maintenance)
+
+  3. Filtrer par type :
+     GET http://localhost:8082/api/locaux/type/LABO
+     → LABO-IA, LABO-SEC
+
+  4. Réserver une salle (montrer le PATCH) :
+     curl -X PATCH "http://localhost:8082/api/locaux/1/disponibilite?valeur=OCCUPE"
+     → la salle 1 passe à OCCUPE
+
+  5. Vérifier qu'elle n'est plus dans les disponibles :
+     GET http://localhost:8082/api/locaux/disponibles
+     → la salle 1 a disparu de la liste
+
+  6. Libérer la salle :
+     curl -X PATCH "http://localhost:8082/api/locaux/1/disponibilite?valeur=DISPONIBLE"
+     → la salle 1 redevient DISPONIBLE
+
+================================================================================
+  13. QUESTIONS QUE LE PROF VA ME POSER (avec réponses)
+================================================================================
+
+  Q : Quel est le rôle de ton service ?
+  R : Gérer les salles de l'université : un CRUD complet, plus la gestion de la
+      disponibilité (DISPONIBLE / OCCUPE / EN_MAINTENANCE). Il est autonome.
+
+  Q : Quel est l'endpoint le plus important de ton service ?
+  R : Le PATCH /api/locaux/{id}/disponibilite. C'est par lui que
+      l'orchestrateur réserve (OCCUPE) et libère (DISPONIBLE) les salles.
+
+  Q : Pourquoi PATCH et pas PUT pour la disponibilité ?
+  R : PATCH modifie un seul attribut (l'état). PUT remplacerait toute la salle.
+      PATCH est la bonne sémantique REST pour un changement d'état.
+
+  Q : Comment l'orchestrateur sait-il qu'une salle est libre ?
+  R : Il appelle mon GET /api/locaux/disponibles. Ma méthode findDisponibles()
+      retourne uniquement les salles dont disponibilite = DISPONIBLE.
+
+  Q : Que se passe-t-il avec une salle EN_MAINTENANCE ?
+  R : Elle n'apparaît jamais dans la liste des salles disponibles, donc
+      l'orchestrateur ne peut pas la réserver. Exemple : AMPHI-C dans init.sql.
+
+  Q : C'est quoi @Enumerated(EnumType.STRING) ?
+  R : Ça dit à JPA de stocker l'enum comme du texte ("AMPHI", "DISPONIBLE")
+      en base, au lieu d'un nombre. C'est plus lisible et plus robuste si on
+      ajoute des valeurs à l'enum.
+
+  Q : Ton service appelle-t-il les autres ?
+  R : Non. Il est totalement autonome. C'est lui qui EST appelé par
+      service-emploi-du-temps.
+
+  Q : Que valide ton service avant de créer une salle ?
+  R : Code non vide, nom non vide, type non null, capacité strictement positive.
+      Et l'unicité du code (pas deux salles avec le même code).
+
+  Q : Comment filtres-tu les salles disponibles avec une capacité minimale ?
+  R : Avec une requête JPQL : WHERE disponibilite = DISPONIBLE AND capacite >= :cap.
+      Le paramètre capaciteMin vient du query parameter de l'URL.
+
+  Q : C'est quoi la différence entre les 3 couches de ton service ?
+  R : LocalResource = HTTP. LocalService = logique métier et validation.
+      LocalRepository = accès base de données. Chacune a un rôle unique.
+
+================================================================================
+  14. PHRASES CLÉS À RETENIR PAR CŒUR
+================================================================================
+
+  • « Mon service gère les salles : un CRUD complet plus la gestion de l'état
+     de disponibilité. »
+
+  • « Mon endpoint le plus important est le PATCH de disponibilité : c'est par
+     lui que l'orchestrateur réserve et libère les salles. »
+
+  • « Une salle a 3 états : DISPONIBLE, OCCUPE, EN_MAINTENANCE. »
+
+  • « findDisponibles() ne retourne que les salles DISPONIBLE : c'est ce que
+     l'orchestrateur consulte avant de planifier. »
+
+  • « PATCH change un seul attribut (l'état), PUT remplacerait toute la salle. »
+
+  • « Mon service est autonome : appelé par emploi-du-temps, il n'appelle
+     personne. Database per service : locaux_db n'appartient qu'à moi. »
+
+================================================================================
+  15. SCHÉMA À DESSINER AU TABLEAU (simple)
+================================================================================
+
+        Client (Postman)            emploi-du-temps (Ayoub)
+            │                            │
+            │ GET/POST /api/locaux       │ GET /disponibles
+            │                            │ PATCH /disponibilite (OCCUPE/DISPONIBLE)
+            ↓                            ↓
+    ┌──────────────────────────────────────┐
+    │      LOCAUX (moi)                     │
+    │                                       │
+    │   LocalResource  (HTTP + PATCH)       │
+    │        ↓                              │
+    │   LocalService   (validation+état)    │
+    │        ↓                              │
+    │   LocalRepository (JPA)               │
+    │        ↓                              │
+    │   locaux_db (table locaux)            │
+    │   états : DISPONIBLE/OCCUPE/MAINTENANCE│
+    └──────────────────────────────────────┘
+
+================================================================================
+  FIN DE MA FICHE PERSONNELLE — AMINE — service-locaux
+================================================================================

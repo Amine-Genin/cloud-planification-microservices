@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: planification
+  labels:
+    app.kubernetes.io/part-of: ump-planification
+    app.kubernetes.io/managed-by: kustomize

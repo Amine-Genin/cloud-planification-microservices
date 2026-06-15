@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-emploi-du-temps
+  namespace: planification
+  labels:
+    app: service-emploi-du-temps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service-emploi-du-temps
+  template:
+    metadata:
+      labels:
+        app: service-emploi-du-temps
+    spec:
+      initContainers:
+        - name: wait-for-mysql
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Attente MySQL emploi-db:3306..."
+              until nc -z emploi-db 3306; do sleep 3; done
+              echo "MySQL emploi-db disponible."
+        - name: wait-for-catalogue
+          image: curlimages/curl:8.5.0
+          command:
+            - sh
+            - -c
+            - |
+              echo "Attente service-catalogue..."
+              until curl -sf http://service-catalogue:8080/api/cours; do sleep 5; done
+              echo "service-catalogue disponible."
+        - name: wait-for-locaux
+          image: curlimages/curl:8.5.0
+          command:
+            - sh
+            - -c
+            - |
+              echo "Attente service-locaux..."
+              until curl -sf http://service-locaux:8080/api/locaux; do sleep 5; done
+              echo "service-locaux disponible."
+      containers:
+        - name: service-emploi-du-temps
+          image: ump/service-emploi-du-temps:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - configMapRef:
+                name: emploi-app-config
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: emploi-db-secret
+                  key: MYSQL_PASSWORD
+          livenessProbe:
+            httpGet:
+              path: /api/emploi-du-temps
+              port: 8080
+            initialDelaySeconds: 90
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /api/emploi-du-temps
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"

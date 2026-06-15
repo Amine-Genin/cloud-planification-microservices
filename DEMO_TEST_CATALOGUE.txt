@@ -1,0 +1,195 @@
+================================================================================
+  GUIDE DE DÉMO / TEST — service-catalogue (port 8081)
+  Projet 2 — Planification & Logistique — UMP Oujda
+================================================================================
+
+  À QUOI SERT CE FICHIER :
+  Ce fichier te donne, étape par étape, toutes les commandes à exécuter pour
+  TESTER et DÉMONTRER le service-catalogue devant le prof.
+  Chaque test indique : la commande, ce qu'elle fait, et le RÉSULTAT ATTENDU.
+
+  AVANT DE COMMENCER :
+  1. Docker Desktop doit être lancé.
+  2. Les conteneurs doivent tourner :
+        docker compose up --build -d
+     (attendre 90-120 secondes que tout soit "healthy")
+  3. Vérifier l'état :
+        docker compose ps
+     → service-catalogue doit être "Up (healthy)"
+
+  OÙ TAPER LES COMMANDES :
+  - curl  → utiliser GIT BASH (pas PowerShell, qui gère mal le JSON)
+  - ou utiliser POSTMAN (plus visuel pour la démo)
+  - les GET simples → directement dans le NAVIGATEUR
+
+  URL DE BASE : http://localhost:8081/api/cours
+
+================================================================================
+  TEST 1 — LISTER TOUS LES COURS (lecture de base)
+================================================================================
+
+  BUT : montrer les 10 cours pré-chargés par init.sql.
+
+  COMMANDE (Git Bash) :
+    curl http://localhost:8081/api/cours
+
+  OU dans le NAVIGATEUR :
+    http://localhost:8081/api/cours
+
+  RÉSULTAT ATTENDU : HTTP 200 + tableau JSON de 10 cours :
+    [
+      {"id":1,"code":"INF301","intitule":"Cloud Computing",...,"credits":6},
+      {"id":2,"code":"INF302","intitule":"Architecture des Microservices",...},
+      ... (10 cours au total)
+    ]
+
+  CE QUE JE DIS AU PROF :
+  « Voici le catalogue : 10 cours chargés automatiquement au démarrage via
+   init.sql. C'est une simple lecture GET qui retourne du JSON. »
+
+================================================================================
+  TEST 2 — TROUVER UN COURS PAR SON ID
+================================================================================
+
+  BUT : récupérer un cours précis par sa clé primaire.
+
+  COMMANDE :
+    curl http://localhost:8081/api/cours/1
+
+  RÉSULTAT ATTENDU : HTTP 200 + un seul cours :
+    {"id":1,"code":"INF301","intitule":"Cloud Computing",
+     "syllabus":"Introduction au cloud...","prerequis":"INF201, INF202","credits":6}
+
+================================================================================
+  TEST 3 — TROUVER UN COURS PAR SON CODE
+================================================================================
+
+  BUT : montrer la recherche par code (utilisée en pratique).
+
+  COMMANDE :
+    curl http://localhost:8081/api/cours/code/INF305
+
+  RÉSULTAT ATTENDU : HTTP 200 + le cours Intelligence Artificielle :
+    {"id":5,"code":"INF305","intitule":"Intelligence Artificielle",...}
+
+================================================================================
+  TEST 4 — COURS INEXISTANT (cas d'erreur 404)
+================================================================================
+
+  BUT : prouver que le service gère bien les ressources absentes.
+
+  COMMANDE :
+    curl -i http://localhost:8081/api/cours/9999
+
+  (l'option -i affiche le code HTTP dans Git Bash)
+
+  RÉSULTAT ATTENDU : HTTP 404 Not Found :
+    {"erreur":"Cours introuvable","statut":404}
+
+  CE QUE JE DIS AU PROF :
+  « Si le cours n'existe pas, je retourne proprement un 404 avec un message
+   JSON clair, pas une erreur技术 brute. »
+
+================================================================================
+  TEST 5 — CRÉER UN NOUVEAU COURS (POST → 201)
+================================================================================
+
+  BUT : démontrer la création (le cœur du CRUD).
+
+  COMMANDE (Git Bash) :
+    curl -X POST http://localhost:8081/api/cours \
+      -H "Content-Type: application/json" \
+      -d '{"code":"INF311","intitule":"DevOps et CI/CD","syllabus":"Docker, Kubernetes, Jenkins","prerequis":"INF301","credits":5}'
+
+  RÉSULTAT ATTENDU : HTTP 201 Created + le cours créé avec son id :
+    {"id":11,"code":"INF311","intitule":"DevOps et CI/CD",...,"credits":5}
+
+  CE QUE JE DIS AU PROF :
+  « Le POST crée un cours. Le service valide les données, vérifie que le code
+   n'existe pas déjà, puis retourne 201 Created avec l'id généré par MySQL. »
+
+  ─────────────────────────────────────────────────────────────────────
+  POSTMAN (équivalent pour la démo) :
+    Méthode : POST
+    URL     : http://localhost:8081/api/cours
+    Body    : raw → JSON (coller le JSON ci-dessus)
+    Send    → voir le 201 en vert
+  ─────────────────────────────────────────────────────────────────────
+
+================================================================================
+  TEST 6 — UNICITÉ DU CODE (recréer le même code → 400) ★ TEST IMPORTANT
+================================================================================
+
+  BUT : prouver la règle métier d'unicité (le point fort du service).
+
+  COMMANDE (relancer exactement le même POST que TEST 5) :
+    curl -X POST http://localhost:8081/api/cours \
+      -H "Content-Type: application/json" \
+      -d '{"code":"INF311","intitule":"Doublon test","credits":3}'
+
+  RÉSULTAT ATTENDU : HTTP 400 Bad Request :
+    {"erreur":"Le code cours existe déjà : INF311","statut":400}
+
+  CE QUE JE DIS AU PROF :
+  « Ici je démontre la garantie d'unicité : impossible de créer deux cours avec
+   le même code. La règle est vérifiée dans CoursService avant l'insertion, et
+   aussi protégée par une contrainte UNIQUE en base. »
+
+================================================================================
+  TEST 7 — MODIFIER UN COURS (PUT → 200)
+================================================================================
+
+  BUT : démontrer la mise à jour.
+
+  COMMANDE (remplacer 11 par l'id réel obtenu au TEST 5) :
+    curl -X PUT http://localhost:8081/api/cours/11 \
+      -H "Content-Type: application/json" \
+      -d '{"code":"INF311","intitule":"DevOps Avancé","syllabus":"GitOps, ArgoCD","prerequis":"INF301","credits":6}'
+
+  RÉSULTAT ATTENDU : HTTP 200 + le cours modifié :
+    {"id":11,"code":"INF311","intitule":"DevOps Avancé",...,"credits":6}
+
+================================================================================
+  TEST 8 — SUPPRIMER UN COURS (DELETE → 204)
+================================================================================
+
+  BUT : démontrer la suppression (fin du cycle CRUD).
+
+  COMMANDE :
+    curl -i -X DELETE http://localhost:8081/api/cours/11
+
+  RÉSULTAT ATTENDU : HTTP 204 No Content (pas de corps de réponse).
+
+  VÉRIFICATION (le cours a bien disparu) :
+    curl -i http://localhost:8081/api/cours/11
+    → HTTP 404 (il n'existe plus)
+
+================================================================================
+  ORDRE RECOMMANDÉ POUR LA DÉMO (2 minutes)
+================================================================================
+
+  1. TEST 1  → lister les 10 cours          (montrer les données)
+  2. TEST 3  → trouver par code INF305       (recherche)
+  3. TEST 5  → créer INF311                  (POST 201)
+  4. TEST 6  → recréer INF311                (UNICITÉ → 400) ★ moment fort
+  5. TEST 7  → modifier INF311               (PUT 200)
+  6. TEST 8  → supprimer INF311              (DELETE 204)
+
+  PHRASE DE CONCLUSION :
+  « J'ai démontré le CRUD complet du catalogue : création, lecture, mise à jour,
+   suppression, avec validation des données et garantie d'unicité du code. »
+
+================================================================================
+  RÉCAPITULATIF DES CODES HTTP À CONNAÎTRE
+================================================================================
+
+    200 OK          → lecture ou modification réussie
+    201 Created     → cours créé
+    204 No Content  → cours supprimé
+    400 Bad Request → données invalides / code déjà existant
+    404 Not Found   → cours introuvable
+    500 Internal    → erreur technique (ex: code > 20 caractères)
+
+================================================================================
+  FIN DU GUIDE DE TEST — service-catalogue
+================================================================================

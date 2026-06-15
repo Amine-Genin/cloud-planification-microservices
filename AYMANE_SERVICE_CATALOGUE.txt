@@ -1,0 +1,568 @@
+================================================================================
+  FICHE PERSONNELLE DE SOUTENANCE — AYMANE
+  SERVICE : service-catalogue (CATALOGUE DES COURS)
+  Projet 2 — Planification & Logistique académique — UMP Oujda
+  Master M2I — Cloud Computing — Semestre 2 — 2025/2026
+================================================================================
+
+  RÉPARTITION DU TRINÔME :
+    • Ayoub  → service-emploi-du-temps  (orchestrateur)
+    • Aymane → service-catalogue   (CE DOCUMENT) ★
+    • Amine  → service-locaux
+
+  CE DOCUMENT EST POUR TOI (AYMANE).
+  Il explique TOUT ce que tu dois savoir et savoir dire sur TON service
+  pour la soutenance : rôle, code, fichiers, flux, questions du prof.
+
+================================================================================
+  TABLE DES MATIÈRES
+================================================================================
+
+  1.  Le rôle de mon service en une phrase
+  2.  Rôle et responsabilités de service-catalogue
+  3.  Vue d'ensemble : où est mon service dans l'architecture
+  4.  Tous mes fichiers (carte du code à connaître)
+  5.  Détail fichier par fichier
+      5.1  Cours.java            (entité / modèle) ★
+      5.2  CoursRepository.java  (accès base de données) ★
+      5.3  CoursService.java     (logique métier) ★
+      5.4  CoursResource.java    (endpoints REST) ★
+  6.  L'architecture en couches (très important à expliquer)
+  7.  Mes endpoints REST (tableau)
+  8.  Exemples d'appels REST (création, lecture, erreurs)
+  9.  Ma base de données (table cours)
+  10. Mon rôle dans la communication inter-services
+  11. Démonstration : ce que je montre au prof
+  12. Questions que le prof VA me poser (avec réponses)
+  13. Phrases clés à retenir par cœur
+  14. Schéma à dessiner au tableau
+
+================================================================================
+  1. LE RÔLE DE MON SERVICE EN UNE PHRASE
+================================================================================
+
+  « Mon service, service-catalogue, gère le catalogue des cours de l'université :
+   c'est un CRUD complet (créer, lire, modifier, supprimer) sur les cours, avec
+   validation des données et garantie d'unicité du code de chaque cours. »
+
+  Dans notre projet à 3 microservices :
+
+    service-catalogue  → gère les COURS    (MON SERVICE) ★
+    service-locaux     → gère les SALLES   (Amine)
+    service-emploi-du-temps → PLANIFIE     (Ayoub, orchestrateur)
+
+  MON SERVICE EST AUTONOME : il ne dépend de personne, il n'appelle aucun autre
+  service. En revanche, il EST appelé par service-emploi-du-temps (Ayoub) qui
+  vient vérifier qu'un cours existe avant de planifier une séance.
+
+================================================================================
+  2. RÔLE ET RESPONSABILITÉS DE service-catalogue
+================================================================================
+
+  IDENTITÉ TECHNIQUE :
+    Conteneur Docker : service-catalogue
+    Port hôte        : 8081  →  http://localhost:8081/api/cours
+    Port interne     : 8080  (WildFly dans le conteneur)
+    Base de données  : catalogue_db  (conteneur catalogue-db, MySQL 8)
+    Package Java     : ma.ump.catalogue
+    Fichier déployé  : service-catalogue.war
+
+  RESPONSABILITÉS :
+    1. Créer un cours (POST) avec validation et contrôle d'unicité du code
+    2. Lister tous les cours (GET)
+    3. Trouver un cours par id ou par code (GET)
+    4. Mettre à jour un cours (PUT)
+    5. Supprimer un cours (DELETE)
+
+  CE QUE MON SERVICE NE FAIT PAS :
+    • Il n'appelle aucun autre service (il est totalement autonome)
+    • Il ne connaît pas l'existence de service-emploi-du-temps
+    • Il ne gère ni salles ni séances — uniquement les cours
+
+  PHRASE À DIRE AU PROF :
+  « Mon service est le service de référence pour les cours. Il est simple et
+   autonome : il ne fait que du CRUD sur sa propre base. Ce sont les autres
+   qui viennent le consulter, pas l'inverse. »
+
+================================================================================
+  3. VUE D'ENSEMBLE : OÙ EST MON SERVICE DANS L'ARCHITECTURE
+================================================================================
+
+        [Client : Postman / curl / test.sh]
+                      │
+                      │ GET/POST http://localhost:8081/api/cours
+                      ↓
+    ┌─────────────────────────────────────────────────────────┐
+    │           service-catalogue (MON SERVICE)                │
+    │                                                          │
+    │   CoursResource    (reçoit le HTTP)                      │
+    │            ↓                                             │
+    │   CoursService     (logique : validation, unicité)       │
+    │            ↓                                             │
+    │   CoursRepository  (accès base catalogue_db)             │
+    │            ↓                                             │
+    │   catalogue_db (MySQL — table cours)                     │
+    └─────────────────────────────────────────────────────────┘
+                      ▲
+                      │ GET /api/cours/{id}
+                      │ (vérification "le cours existe ?")
+                      │
+            ┌─────────────────────────────┐
+            │  service-emploi-du-temps     │
+            │  (Ayoub) m'appelle           │
+            └─────────────────────────────┘
+
+  RÈGLE D'OR : Mon service est appelé par emploi-du-temps, mais lui n'appelle
+  jamais personne. C'est un service AUTONOME (couplage unidirectionnel).
+
+================================================================================
+  4. TOUS MES FICHIERS (carte du code à connaître)
+================================================================================
+
+  service-catalogue/
+  │
+  ├── compose.yaml        ← config Docker (mon app + catalogue-db)
+  ├── Dockerfile          ← build Maven + déploiement WildFly
+  ├── init.sql            ← création table cours + 10 cours initiaux
+  ├── pom.xml             ← dépendances Maven (Jakarta EE 10)
+  │
+  └── src/main/
+      ├── java/ma/ump/catalogue/
+      │   │
+      │   ├── entity/                  ← MODÈLE DE DONNÉES
+      │   │   └── Cours.java            → le cours (table cours) ★
+      │   │
+      │   ├── repository/              ← ACCÈS BASE DE DONNÉES
+      │   │   └── CoursRepository.java  → CRUD + recherche par code ★
+      │   │
+      │   ├── service/                 ← LOGIQUE MÉTIER
+      │   │   └── CoursService.java     → validation, unicité ★
+      │   │
+      │   └── rest/                    ← API REST (HTTP)
+      │       ├── CoursResource.java    → endpoints GET/POST/PUT/DELETE ★
+      │       └── ApplicationConfig.java → config JAX-RS (chemin /api)
+      │
+      ├── resources/META-INF/
+      │   └── persistence.xml          → config JPA (cataloguePU + datasource)
+      │
+      └── webapp/WEB-INF/
+          ├── beans.xml                → active CDI
+          └── jboss-web.xml            → context-root = "/"
+
+  LES 4 FICHIERS À MAÎTRISER (marqués ★) :
+    1. Cours.java            → le modèle, les annotations JPA
+    2. CoursRepository.java  → les requêtes en base
+    3. CoursService.java     → la validation et l'unicité du code
+    4. CoursResource.java    → les endpoints REST et les codes HTTP
+
+================================================================================
+  5. DÉTAIL FICHIER PAR FICHIER
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+  5.1  Cours.java  (ENTITÉ / MODÈLE DE DONNÉES) ★
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : représente un cours. Classe Java mappée sur la table SQL "cours"
+         grâce à JPA (Java Persistence API).
+
+  CHAMPS (= colonnes de la table) :
+    id        → Long, clé primaire auto-incrémentée
+    code      → String, code unique du cours (ex: "INF301"), max 20 caractères
+    intitule  → String, nom du cours (ex: "Cloud Computing")
+    syllabus  → String, contenu détaillé (TEXT, peut être long)
+    prerequis → String, cours prérequis (ex: "INF201, INF202")
+    credits   → int, nombre de crédits ECTS
+
+  ANNOTATIONS JPA À EXPLIQUER :
+    @Entity                  → cette classe est une table en base
+    @Table(name="cours", uniqueConstraints=...) → nom de table + contrainte unique
+    @Id                      → ce champ est la clé primaire
+    @GeneratedValue(IDENTITY) → auto-incrément MySQL (1, 2, 3...)
+    @Column(nullable=false, unique=true, length=20) → contraintes SQL sur "code"
+    @Lob                     → pour le syllabus (Large OBject, texte long)
+    @UniqueConstraint(name="uk_cours_code", columnNames="code")
+                             → 2 cours ne peuvent pas avoir le même code
+
+  POINT IMPORTANT À DIRE AU PROF :
+  « Le code du cours est UNIQUE : c'est une contrainte au niveau de la base
+   (uk_cours_code) ET vérifiée dans mon service avant l'insertion. Attention,
+   le code est limité à 20 caractères : un code trop long fait échouer
+   l'insertion en base. »
+
+  POURQUOI Serializable ?
+  → JPA peut avoir besoin de sérialiser l'entité (cache, transfert). C'est une
+    bonne pratique standard pour les entités.
+
+────────────────────────────────────────────────────────────────────────────────
+  5.2  CoursRepository.java  (ACCÈS BASE DE DONNÉES) ★
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : toutes les opérations SQL sur la table "cours" (catalogue_db).
+         C'est la couche qui parle à la base via l'EntityManager JPA.
+
+  ANNOTATION : @Stateless
+  → C'est un EJB sans état. WildFly gère un pool d'instances et les
+    transactions automatiquement.
+
+  @PersistenceContext(unitName="cataloguePU")
+  → Injecte l'EntityManager JPA (l'objet qui exécute les requêtes en base).
+    "cataloguePU" est l'unité de persistance définie dans persistence.xml.
+
+  MÉTHODES :
+    findAll()            → SELECT tous les cours (triés par code)
+    findById(id)         → em.find() — recherche par clé primaire
+    findByCode(code)     → recherche par code unique (avec gestion si absent)
+    create(cours)        → em.persist() — INSERT
+    update(cours)        → em.merge()   — UPDATE
+    delete(id)           → em.remove()  — DELETE
+    existsByCode(code,id)→ vérifie si un code est déjà pris (pour l'unicité)
+
+  CONCEPTS À EXPLIQUER :
+    JPQL  → langage de requête JPA orienté objet :
+            "SELECT c FROM Cours c ORDER BY c.code"
+            (Cours = classe Java, pas le nom de la table)
+    TypedQuery → requête typée et paramétrée (sécurité anti-injection SQL)
+    Optional   → évite les NullPointerException quand un cours est absent
+
+  existsByCode() — astuce à comprendre :
+    "SELECT COUNT(c) FROM Cours c WHERE c.code = :code AND (:id IS NULL OR c.id <> :id)"
+    → en CRÉATION (id=null) : le code ne doit exister nulle part
+    → en MODIFICATION (id≠null) : le code peut appartenir au même cours,
+      mais pas à un autre cours
+
+────────────────────────────────────────────────────────────────────────────────
+  5.3  CoursService.java  (LOGIQUE MÉTIER) ★
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : contient les règles métier. Valide les données et garantit l'unicité
+         du code avant d'écrire en base.
+
+  ANNOTATION : @Stateless (EJB) + @Inject CoursRepository
+
+  MÉTHODES :
+    listerTous()         → délègue au repository
+    trouverParId(id)     → recherche par id
+    trouverParCode(code) → recherche par code
+    creer(cours)         → ★ valide + vérifie l'unicité + crée
+    mettreAJour(id,cours)→ ★ vérifie existence + valide + met à jour
+    supprimer(id)        → supprime
+    validerCours(...)    → validation des champs obligatoires
+
+  LOGIQUE DE creer() :
+    1. validerCours() : code non vide, intitulé non vide, credits >= 0
+    2. existsByCode() : le code n'existe pas déjà → sinon erreur 400
+    3. create() : insertion en base
+
+  LOGIQUE DE mettreAJour() :
+    1. Charger le cours existant → si absent, erreur (sera 404)
+    2. Valider les nouvelles données
+    3. Vérifier que le nouveau code n'est pas pris par un AUTRE cours
+    4. Copier les nouvelles valeurs et sauvegarder
+
+  POINT À EXPLIQUER :
+  « Je sépare bien les responsabilités : le Resource gère le HTTP, MON service
+   gère les règles métier (validation, unicité), et le Repository gère l'accès
+   à la base. Si une règle est violée, je lève une IllegalArgumentException
+   que le Resource transforme en HTTP 400. »
+
+────────────────────────────────────────────────────────────────────────────────
+  5.4  CoursResource.java  (ENDPOINTS REST) ★
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : la porte d'entrée HTTP. Reçoit les requêtes, appelle CoursService,
+         retourne des réponses JSON avec les bons codes HTTP.
+
+  ANNOTATIONS :
+    @Path("/cours")        → URL de base : /api/cours
+    @Produces(JSON)        → réponses en JSON
+    @Consumes(JSON)        → reçoit du JSON
+    @RequestScoped         → une instance par requête HTTP
+    @Inject CoursService   → injection du service métier
+
+  ENDPOINTS (méthodes) :
+    @GET                    listerTous()    → GET /api/cours
+    @GET @Path("/{id}")      trouverParId() → GET /api/cours/{id}
+    @GET @Path("/code/{code}") trouverParCode() → GET /api/cours/code/INF301
+    @POST                    creer()        → POST /api/cours
+    @PUT @Path("/{id}")      mettreAJour()  → PUT /api/cours/{id}
+    @DELETE @Path("/{id}")   supprimer()    → DELETE /api/cours/{id}
+
+  GESTION DES ERREURS :
+    catch (IllegalArgumentException) → HTTP 400 (ou 404 si "introuvable")
+    catch (Exception)                → HTTP 500
+    Réponses d'erreur uniformes : { "erreur": "...", "statut": 400 }
+
+  CODES HTTP RETOURNÉS :
+    200 → lecture réussie (GET)
+    201 → cours créé (POST)
+    204 → cours supprimé (DELETE)
+    400 → données invalides ou code déjà existant
+    404 → cours introuvable
+    500 → erreur technique
+
+================================================================================
+  6. L'ARCHITECTURE EN COUCHES (très important à expliquer)
+================================================================================
+
+  Mon service suit une architecture en 3 couches bien séparées :
+
+    HTTP Request (JSON)
+        ↓
+    ┌────────────────────────────────────────────────┐
+    │ CoursResource  (couche REST / Présentation)     │
+    │ → reçoit le HTTP, sérialise/désérialise le JSON │
+    │ → choisit le code HTTP de retour                │
+    └────────────────────┬───────────────────────────┘
+                        ↓
+    ┌────────────────────────────────────────────────┐
+    │ CoursService   (couche Métier / Logique)        │
+    │ → valide les données                            │
+    │ → garantit l'unicité du code                    │
+    └────────────────────┬───────────────────────────┘
+                        ↓
+    ┌────────────────────────────────────────────────┐
+    │ CoursRepository (couche Accès aux données / DAO)│
+    │ → exécute les requêtes JPA/JPQL                 │
+    └────────────────────┬───────────────────────────┘
+                        ↓
+    ┌────────────────────────────────────────────────┐
+    │ catalogue_db   (MySQL — table cours)            │
+    └────────────────────────────────────────────────┘
+
+  POURQUOI SÉPARER EN COUCHES ?
+  « Chaque couche a une responsabilité unique. Si je veux changer la base de
+   données, je ne touche qu'au Repository. Si je change une règle métier, je
+   ne touche qu'au Service. C'est plus maintenable et testable. »
+
+================================================================================
+  7. MES ENDPOINTS REST (TABLEAU)
+================================================================================
+
+  ┌────────┬───────────────────────────┬──────────────────────────────────────┐
+  │ Verbe  │ URL                       │ Description / Codes retour           │
+  ├────────┼───────────────────────────┼──────────────────────────────────────┤
+  │ GET    │ /api/cours                │ Liste tous les cours → 200           │
+  │ GET    │ /api/cours/{id}           │ Un cours par id → 200 ou 404         │
+  │ GET    │ /api/cours/code/{code}    │ Un cours par code → 200 ou 404       │
+  │ POST   │ /api/cours                │ Créer un cours → 201 ou 400          │
+  │ PUT    │ /api/cours/{id}           │ Modifier un cours → 200, 400 ou 404  │
+  │ DELETE │ /api/cours/{id}           │ Supprimer un cours → 204 ou 404      │
+  └────────┴───────────────────────────┴──────────────────────────────────────┘
+
+  L'ENDPOINT IMPORTANT POUR LE PROJET :
+    GET /api/cours/{id}
+    → C'est celui que service-emploi-du-temps (Ayoub) appelle pour vérifier
+      qu'un cours existe avant de planifier une séance.
+
+================================================================================
+  8. EXEMPLES D'APPELS REST
+================================================================================
+
+  CRÉATION D'UN COURS (succès) :
+  ─────────────────────────────
+    POST http://localhost:8081/api/cours
+    Content-Type: application/json
+    {
+      "code": "INF311",
+      "intitule": "DevOps et CI/CD",
+      "syllabus": "Docker, Kubernetes, Jenkins",
+      "prerequis": "INF301",
+      "credits": 5
+    }
+    → HTTP 201 Created
+    { "id": 11, "code": "INF311", ... }
+
+  CRÉATION AVEC CODE DÉJÀ EXISTANT (erreur) :
+  ────────────────────────────────────────────
+    POST http://localhost:8081/api/cours  (avec code "INF301" déjà pris)
+    → HTTP 400 Bad Request
+    { "erreur": "Le code cours existe déjà : INF301", "statut": 400 }
+
+  LECTURE PAR CODE :
+  ──────────────────
+    GET http://localhost:8081/api/cours/code/INF301
+    → HTTP 200 + le cours Cloud Computing
+
+  PIÈGE CONNU (code trop long) :
+  ──────────────────────────────
+    POST avec "code": "TEST-COURS-1234567890ABC" (> 20 caractères)
+    → HTTP 500 ! La base rejette car la colonne est VARCHAR(20).
+    → Solution possible : ajouter une validation de longueur dans le service.
+
+================================================================================
+  9. MA BASE DE DONNÉES (table cours)
+================================================================================
+
+  Base : catalogue_db (conteneur catalogue-db, MySQL 8)
+  Unité de persistance JPA : cataloguePU (dans persistence.xml)
+
+  CREATE TABLE cours (
+    id        BIGINT NOT NULL AUTO_INCREMENT,
+    code      VARCHAR(20) NOT NULL,
+    intitule  VARCHAR(255) NOT NULL,
+    syllabus  TEXT,
+    prerequis VARCHAR(500),
+    credits   INT NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uk_cours_code UNIQUE (code)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+  DONNÉES INITIALES (init.sql) — 10 cours pré-chargés :
+    INF301 → Cloud Computing (6 crédits)
+    INF302 → Architecture des Microservices (6 crédits)
+    INF303 → Sécurité des SI (5 crédits)
+    INF304 → Big Data et Analytics (6 crédits)
+    INF305 → Intelligence Artificielle (6 crédits)
+    INF306 → Développement Mobile (5 crédits)
+    INF307 → Réseaux Avancés (5 crédits)
+    INF308 → Génie Logiciel (5 crédits)
+    INF309 → Base de Données Avancées (6 crédits)
+    INF310 → Projet de Fin d'Études (8 crédits)
+
+  init.sql est exécuté automatiquement au PREMIER démarrage de catalogue-db.
+
+================================================================================
+  10. MON RÔLE DANS LA COMMUNICATION INTER-SERVICES
+================================================================================
+
+  MON SERVICE EST APPELÉ, IL N'APPELLE PERSONNE :
+
+    service-emploi-du-temps (Ayoub)
+            │ GET http://service-catalogue:8080/api/cours/{id}
+            ↓
+    service-catalogue (MOI)
+            → si le cours existe : HTTP 200 + données
+            → si le cours n'existe pas : HTTP 404
+
+  CE QUE JE DOIS RETENIR :
+  « Mon service ne sait même pas que emploi-du-temps existe. Il répond juste
+   aux requêtes HTTP qu'il reçoit. C'est le découplage : je suis un service de
+   référence réutilisable par n'importe quel client. »
+
+  POURQUOI L'URL EST "service-catalogue:8080" CÔTÉ DOCKER ?
+  → Dans le réseau Docker "planification-net", mon conteneur est accessible
+    par son nom DNS "service-catalogue" sur le port interne 8080.
+  → Depuis le PC (Postman), on utilise http://localhost:8081 (port exposé).
+
+================================================================================
+  11. DÉMONSTRATION : CE QUE JE MONTRE AU PROF
+================================================================================
+
+  1. Lister les 10 cours initiaux :
+     GET http://localhost:8081/api/cours
+     → les 10 cours du init.sql
+
+  2. Trouver un cours par code :
+     GET http://localhost:8081/api/cours/code/INF301
+     → Cloud Computing
+
+  3. Créer un nouveau cours :
+     POST http://localhost:8081/api/cours
+     Body : {"code":"INF311","intitule":"DevOps","credits":5}
+     → HTTP 201
+
+  4. Montrer le contrôle d'unicité (recréer le même code) :
+     POST avec "code":"INF311" à nouveau
+     → HTTP 400 "Le code cours existe déjà"
+
+  5. Modifier un cours :
+     PUT http://localhost:8081/api/cours/11
+     → HTTP 200 avec les nouvelles valeurs
+
+  6. Supprimer un cours :
+     DELETE http://localhost:8081/api/cours/11
+     → HTTP 204
+
+================================================================================
+  12. QUESTIONS QUE LE PROF VA ME POSER (avec réponses)
+================================================================================
+
+  Q : Quel est le rôle de ton service ?
+  R : Gérer le catalogue des cours : un CRUD complet (créer, lire, modifier,
+      supprimer) avec validation et garantie d'unicité du code. Il est autonome.
+
+  Q : Ton service appelle-t-il les autres ?
+  R : Non. Mon service est totalement autonome. C'est lui qui EST appelé par
+      service-emploi-du-temps quand il veut vérifier qu'un cours existe.
+
+  Q : Comment garantis-tu qu'un code de cours est unique ?
+  R : À deux niveaux : (1) une contrainte UNIQUE en base (uk_cours_code) et
+      (2) une vérification dans CoursService.creer() via existsByCode() qui
+      retourne une erreur 400 si le code est déjà pris.
+
+  Q : C'est quoi la différence entre les couches Resource, Service et Repository ?
+  R : Resource = HTTP (reçoit la requête, choisit le code de retour).
+      Service = logique métier (validation, unicité).
+      Repository = accès à la base (requêtes JPA). Chacune a un rôle unique.
+
+  Q : C'est quoi JPA et @Entity ?
+  R : JPA est la spécification Java de mapping objet-relationnel. @Entity dit
+      que ma classe Cours correspond à une table SQL. JPA génère le SQL
+      automatiquement (SELECT, INSERT, etc.) via Hibernate.
+
+  Q : Pourquoi @Stateless sur ton Service et ton Repository ?
+  R : Ce sont des EJB sans état. WildFly gère un pool d'instances et les
+      transactions automatiquement. Chaque requête peut utiliser n'importe
+      quelle instance du pool.
+
+  Q : Que se passe-t-il si on envoie un code de plus de 20 caractères ?
+  R : La validation Java passe mais la base rejette l'insertion (VARCHAR(20)),
+      ce qui donne une erreur 500. C'est un point d'amélioration : ajouter une
+      validation de longueur dans le service.
+
+  Q : C'est quoi la différence entre PUT et POST ?
+  R : POST crée une nouvelle ressource (retourne 201). PUT met à jour une
+      ressource existante de manière complète (retourne 200).
+
+  Q : Comment les 10 cours arrivent-ils dans la base ?
+  R : Via le fichier init.sql, exécuté automatiquement au premier démarrage
+      du conteneur catalogue-db. Il crée la table et insère les 10 cours.
+
+  Q : C'est quoi un Optional dans ton Repository ?
+  R : C'est un conteneur Java qui peut être "présent" ou "vide". Il évite les
+      NullPointerException quand un cours n'existe pas : je retourne
+      Optional.empty() au lieu de null.
+
+================================================================================
+  13. PHRASES CLÉS À RETENIR PAR CŒUR
+================================================================================
+
+  • « Mon service gère le catalogue des cours : un CRUD complet et autonome. »
+
+  • « Il est appelé par emploi-du-temps mais n'appelle personne lui-même. »
+
+  • « L'unicité du code est garantie en base (contrainte UNIQUE) ET dans le
+     service (existsByCode). »
+
+  • « J'utilise une architecture en 3 couches : Resource (HTTP), Service
+     (métier), Repository (base de données). »
+
+  • « JPA mappe ma classe Cours sur la table cours : @Entity, @Id, @Column. »
+
+  • « Database per service : ma base catalogue_db n'appartient qu'à moi,
+     personne d'autre n'y accède directement. »
+
+================================================================================
+  14. SCHÉMA À DESSINER AU TABLEAU (simple)
+================================================================================
+
+        Client (Postman)            emploi-du-temps (Ayoub)
+            │                            │
+            │ POST/GET /api/cours        │ GET /api/cours/{id}
+            ↓                            ↓
+    ┌──────────────────────────────────────┐
+    │      CATALOGUE (moi)                  │
+    │                                       │
+    │   CoursResource  (HTTP)               │
+    │        ↓                              │
+    │   CoursService   (validation+unicité) │
+    │        ↓                              │
+    │   CoursRepository (JPA)               │
+    │        ↓                              │
+    │   catalogue_db (table cours)          │
+    └──────────────────────────────────────┘
+
+================================================================================
+  FIN DE MA FICHE PERSONNELLE — AYMANE — service-catalogue
+================================================================================

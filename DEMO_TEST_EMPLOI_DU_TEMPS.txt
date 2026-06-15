@@ -1,0 +1,296 @@
+================================================================================
+  GUIDE DE DÉMO / TEST — service-emploi-du-temps (port 8083) ★ ORCHESTRATEUR
+  Projet 2 — Planification & Logistique — UMP Oujda
+================================================================================
+
+  À QUOI SERT CE FICHIER :
+  Ce fichier te donne, étape par étape, toutes les commandes pour TESTER et
+  DÉMONTRER le service-emploi-du-temps (TON service, Ayoub) devant le prof.
+  C'EST LA DÉMO LA PLUS IMPORTANTE car elle montre l'ORCHESTRATION des 3 services.
+
+  AVANT DE COMMENCER :
+  1. Docker Desktop lancé.
+  2. Conteneurs démarrés : docker compose up --build -d (attendre 90-120 s).
+  3. Vérifier : docker compose ps → les 6 conteneurs "Up (healthy)".
+
+  OÙ TAPER LES COMMANDES :
+  - curl → GIT BASH (obligatoire pour le JSON, PowerShell pose problème)
+  - ou POSTMAN (recommandé pour cette démo, plus visuel)
+
+  URL DE BASE : http://localhost:8083/api/emploi-du-temps
+
+  ⚠ IMPORTANT : ce service appelle les 2 autres. Donc service-catalogue (8081)
+  et service-locaux (8082) DOIVENT être démarrés et "healthy" AVANT de tester.
+
+================================================================================
+  RAPPEL DU FLUX DE PLANIFICATION (ce que la démo va prouver)
+================================================================================
+
+  Quand je planifie une séance, mon service fait 6 vérifications/actions :
+    1. Valider les données envoyées
+    2. Vérifier que le COURS existe        → appel HTTP vers catalogue (8081)
+    3. Vérifier que la SALLE est libre      → appel HTTP vers locaux (8082)
+    4. Détecter un CONFLIT horaire          → vérification en base locale
+    5. RÉSERVER la salle (OCCUPE)           → appel HTTP PATCH vers locaux
+    6. ENREGISTRER la séance                → INSERT en base emploi_db
+
+================================================================================
+  TEST 1 — LISTER LES SÉANCES (vide au départ)
+================================================================================
+
+  BUT : montrer qu'aucune séance n'est planifiée au début.
+
+  COMMANDE :
+    curl http://localhost:8083/api/emploi-du-temps
+
+  RÉSULTAT ATTENDU : HTTP 200 + tableau vide :
+    []
+
+================================================================================
+  TEST 2 — PRÉPARATION : vérifier un cours et une salle
+================================================================================
+
+  BUT : montrer les données qu'on va utiliser (cours 1 + salle 1).
+
+  COMMANDE (vérifier le cours 1 existe dans catalogue) :
+    curl http://localhost:8081/api/cours/1
+    → INF301 Cloud Computing
+
+  COMMANDE (vérifier la salle 1 est disponible dans locaux) :
+    curl http://localhost:8082/api/locaux/1
+    → AMPHI-A, disponibilite "DISPONIBLE"
+
+  CE QUE JE DIS AU PROF :
+  « Avant de planifier, je vérifie que mon cours et ma salle existent. Mon
+   service va faire ces vérifications automatiquement par appels HTTP. »
+
+================================================================================
+  TEST 3 — PLANIFIER UNE SÉANCE (succès → 201) ★★★ TEST PHARE
+================================================================================
+
+  BUT : démontrer l'orchestration complète (le cœur du projet).
+
+  COMMANDE (Git Bash) :
+    curl -X POST http://localhost:8083/api/emploi-du-temps \
+      -H "Content-Type: application/json" \
+      -d '{"coursId":1,"localId":1,"jour":"LUNDI","heureDebut":"08:00","heureFin":"10:00","semestre":"S2-2026","type":"COURS_MAGISTRAL"}'
+
+  RÉSULTAT ATTENDU : HTTP 201 Created + la séance créée :
+    {"id":1,"coursId":1,"localId":1,"jour":"LUNDI",
+     "heureDebut":"08:00","heureFin":"10:00","semestre":"S2-2026",
+     "type":"COURS_MAGISTRAL"}
+
+  CE QUE JE DIS AU PROF (en montrant le résultat) :
+  « Là, mon service a fait 6 choses : il a validé les données, vérifié que le
+   cours 1 existe en appelant catalogue, vérifié que la salle 1 est libre en
+   appelant locaux, vérifié qu'il n'y a pas de conflit, RÉSERVÉ la salle en
+   PATCH, puis enregistré la séance. Tout ça automatiquement. »
+
+  ─────────────────────────────────────────────────────────────────────
+  POSTMAN :
+    Méthode : POST
+    URL     : http://localhost:8083/api/emploi-du-temps
+    Body    : raw → JSON (coller le JSON ci-dessus)
+    Send    → 201 en vert
+  ─────────────────────────────────────────────────────────────────────
+
+================================================================================
+  TEST 4 — PREUVE QUE LA SALLE EST RÉSERVÉE (effet de l'orchestration) ★
+================================================================================
+
+  BUT : montrer que mon service a bien modifié l'état dans service-locaux.
+
+  COMMANDE :
+    curl http://localhost:8082/api/locaux/1
+
+  RÉSULTAT ATTENDU : la salle 1 est maintenant OCCUPE :
+    {"id":1,"code":"AMPHI-A",...,"disponibilite":"OCCUPE"}
+
+  CE QUE JE DIS AU PROF :
+  « La preuve que l'orchestration fonctionne : la salle 1 était DISPONIBLE,
+   et après ma planification, elle est passée à OCCUPE. C'est MON service qui
+   a appelé le PATCH de service-locaux. C'est de la communication inter-services
+   réelle. »
+
+================================================================================
+  TEST 5 — CONFLIT HORAIRE (créneau qui chevauche → 409) ★★★ MOMENT FORT
+================================================================================
+
+  BUT : démontrer la détection de conflit (l'algorithme HeureUtil).
+
+  CONTEXTE : la salle 1 est déjà prise LUNDI de 08:00 à 10:00.
+  On essaie de planifier une AUTRE séance dans la MÊME salle, MÊME jour,
+  sur un créneau QUI CHEVAUCHE (09:00 à 11:00).
+
+  COMMANDE :
+    curl -i -X POST http://localhost:8083/api/emploi-du-temps \
+      -H "Content-Type: application/json" \
+      -d '{"coursId":2,"localId":1,"jour":"LUNDI","heureDebut":"09:00","heureFin":"11:00","semestre":"S2-2026","type":"TD"}'
+
+  RÉSULTAT ATTENDU : HTTP 409 Conflict :
+    {"erreur":"Conflit de planification : la salle est déjà occupée sur ce créneau horaire","statut":409}
+
+  CE QUE JE DIS AU PROF :
+  « Ici je démontre le cœur technique : mon algorithme détecte que le créneau
+   09:00-11:00 chevauche le créneau 08:00-10:00 sur la même salle le même jour.
+   La formule est d1 < f2 ET d2 < f1. Je retourne un 409 Conflict, code HTTP
+   spécifique aux conflits de ressource. »
+
+================================================================================
+  TEST 6 — PAS DE CONFLIT SI CRÉNEAU CONSÉCUTIF (→ 201)
+================================================================================
+
+  BUT : prouver que l'algorithme est intelligent (créneaux qui se suivent OK).
+
+  CONTEXTE : salle 1 prise de 08:00 à 10:00. On planifie de 10:00 à 12:00.
+  Les créneaux se SUIVENT mais ne se CHEVAUCHENT PAS → autorisé.
+
+  COMMANDE :
+    curl -X POST http://localhost:8083/api/emploi-du-temps \
+      -H "Content-Type: application/json" \
+      -d '{"coursId":2,"localId":1,"jour":"LUNDI","heureDebut":"10:00","heureFin":"12:00","semestre":"S2-2026","type":"TD"}'
+
+  RÉSULTAT ATTENDU : HTTP 201 Created (pas de conflit, créneaux consécutifs) :
+    {"id":2,"coursId":2,"localId":1,"jour":"LUNDI","heureDebut":"10:00",...}
+
+  CE QUE JE DIS AU PROF :
+  « Mon algorithme distingue chevauchement et succession : 10:00-12:00 commence
+   exactement quand 08:00-10:00 finit, donc pas de conflit. La condition
+   d2 < f1 (600 < 600) est fausse, donc aucun chevauchement détecté. »
+
+================================================================================
+  TEST 7 — COURS INEXISTANT (→ 400)
+================================================================================
+
+  BUT : prouver la vérification inter-services vers catalogue.
+
+  COMMANDE (coursId 9999 qui n'existe pas) :
+    curl -i -X POST http://localhost:8083/api/emploi-du-temps \
+      -H "Content-Type: application/json" \
+      -d '{"coursId":9999,"localId":2,"jour":"MARDI","heureDebut":"08:00","heureFin":"10:00","semestre":"S2-2026","type":"TP"}'
+
+  RÉSULTAT ATTENDU : HTTP 400 Bad Request :
+    {"erreur":"Le cours avec l'id 9999 n'existe pas","statut":400}
+
+  CE QUE JE DIS AU PROF :
+  « Mon service a appelé catalogue, qui a répondu 404. Je transforme ça en 400
+   et je refuse la planification. C'est la vérification d'intégrité par API,
+   puisqu'on n'a pas de clés étrangères entre les bases. »
+
+================================================================================
+  TEST 8 — SALLE NON DISPONIBLE (→ 400)
+================================================================================
+
+  BUT : prouver la vérification vers locaux (salle en maintenance ou occupée).
+
+  COMMANDE (localId 10 = AMPHI-C, qui est EN_MAINTENANCE) :
+    curl -i -X POST http://localhost:8083/api/emploi-du-temps \
+      -H "Content-Type: application/json" \
+      -d '{"coursId":1,"localId":10,"jour":"MARDI","heureDebut":"08:00","heureFin":"10:00","semestre":"S2-2026","type":"COURS_MAGISTRAL"}'
+
+  RÉSULTAT ATTENDU : HTTP 400 :
+    {"erreur":"La salle avec l'id 10 n'est pas disponible (DISPONIBLE)","statut":400}
+
+================================================================================
+  TEST 9 — LISTER LES SÉANCES DU LUNDI
+================================================================================
+
+  BUT : montrer le filtrage par jour.
+
+  COMMANDE :
+    curl http://localhost:8083/api/emploi-du-temps/jour/LUNDI
+
+  RÉSULTAT ATTENDU : HTTP 200 + les 2 séances du lundi (TEST 3 et TEST 6) :
+    [
+      {"id":1,...,"heureDebut":"08:00","heureFin":"10:00",...},
+      {"id":2,...,"heureDebut":"10:00","heureFin":"12:00",...}
+    ]
+
+================================================================================
+  TEST 10 — SUPPRIMER UNE SÉANCE (→ 204 + libération salle) ★
+================================================================================
+
+  BUT : démontrer la suppression ET la libération automatique de la salle.
+
+  COMMANDE (supprimer la séance 1) :
+    curl -i -X DELETE http://localhost:8083/api/emploi-du-temps/1
+
+  RÉSULTAT ATTENDU : HTTP 204 No Content.
+
+  CE QUE JE DIS AU PROF :
+  « Quand je supprime une séance, mon service libère aussi la salle associée
+   en appelant le PATCH de locaux avec valeur=DISPONIBLE. »
+
+  NOTE : ici la salle 1 a encore la séance 2 (10:00-12:00). Selon
+  l'implémentation, la salle peut rester OCCUPE tant qu'une autre séance
+  l'utilise. Vérifie l'état après suppression :
+    curl http://localhost:8082/api/locaux/1
+
+================================================================================
+  ORDRE RECOMMANDÉ POUR LA DÉMO (3-4 minutes) ★ LA DÉMO CLÉ DU PROJET
+================================================================================
+
+  1. TEST 1  → séances vides au départ          []
+  2. TEST 3  → planifier séance LUNDI 08:00-10:00 → 201 ★
+  3. TEST 4  → montrer salle 1 devenue OCCUPE     (preuve orchestration) ★
+  4. TEST 5  → tenter conflit 09:00-11:00 → 409   (détection conflit) ★★★
+  5. TEST 6  → créneau consécutif 10:00-12:00 → 201 (algorithme intelligent)
+  6. TEST 7  → cours inexistant → 400             (vérif catalogue)
+  7. TEST 9  → lister séances du lundi            (résultat final)
+
+  PHRASE DE CONCLUSION (à dire avec assurance) :
+  « J'ai démontré l'orchestration complète : mon service coordonne catalogue et
+   locaux par appels HTTP, détecte les conflits horaires avec mon algorithme,
+   réserve et libère les salles automatiquement. C'est le cœur de l'architecture
+   microservices : des services indépendants qui collaborent par API REST. »
+
+================================================================================
+  ALTERNATIVE RAPIDE : LE SCRIPT test.sh (14 tests automatiques)
+================================================================================
+
+  Au lieu de tout taper à la main, tu peux lancer le script complet :
+
+    [Git Bash, depuis projet2-planification]
+    chmod +x test.sh
+    ./test.sh
+
+  Il enchaîne automatiquement : création cours + salle → planification → conflit
+  409 → lecture → suppression → libération salle. Affiche 14 [PASS] en vert.
+  Code de sortie 0 = tout réussi.
+
+  CONSEIL DÉMO : montre d'abord 2-3 requêtes Postman à la main (plus parlant),
+  puis lance ./test.sh pour prouver que TOUT est validé automatiquement.
+
+================================================================================
+  RÉCAPITULATIF DES CODES HTTP DE MON SERVICE
+================================================================================
+
+    201 Created     → séance planifiée avec succès
+    204 No Content  → séance supprimée
+    400 Bad Request → données invalides / cours absent / salle indisponible
+    404 Not Found   → séance ou jour introuvable
+    409 Conflict    → conflit horaire (MA signature) ★
+    500 Internal    → erreur technique (réseau, base)
+
+================================================================================
+  TABLEAU DES DONNÉES UTILES POUR LA DÉMO
+================================================================================
+
+  COURS disponibles (service-catalogue) : id 1 à 10
+    id 1 = INF301 Cloud Computing
+    id 2 = INF302 Microservices
+    ...
+
+  SALLES disponibles (service-locaux) : id 1 à 9 DISPONIBLE, id 10 EN_MAINTENANCE
+    id 1  = AMPHI-A (200 places)
+    id 2  = AMPHI-B (180 places)
+    id 5  = TP-L1 (30 places)
+    id 10 = AMPHI-C (EN_MAINTENANCE → pour tester le refus)
+
+  JOURS valides : LUNDI, MARDI, MERCREDI, JEUDI, VENDREDI, SAMEDI
+  TYPES valides : COURS_MAGISTRAL, TP, TD
+  FORMAT HEURE  : "HH:mm" (ex: "08:00", "14:30")
+
+================================================================================
+  FIN DU GUIDE DE TEST — service-emploi-du-temps
+================================================================================

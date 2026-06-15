@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-locaux
+  namespace: planification
+  labels:
+    app: service-locaux
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service-locaux
+  template:
+    metadata:
+      labels:
+        app: service-locaux
+    spec:
+      initContainers:
+        - name: wait-for-mysql
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Attente MySQL locaux-db:3306..."
+              until nc -z locaux-db 3306; do sleep 3; done
+              echo "MySQL locaux-db disponible."
+      containers:
+        - name: service-locaux
+          image: ump/service-locaux:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - configMapRef:
+                name: locaux-app-config
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: locaux-db-secret
+                  key: MYSQL_PASSWORD
+          livenessProbe:
+            httpGet:
+              path: /api/locaux
+              port: 8080
+            initialDelaySeconds: 90
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /api/locaux
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"

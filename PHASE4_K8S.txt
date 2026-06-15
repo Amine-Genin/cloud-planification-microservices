@@ -1,0 +1,297 @@
+================================================================================
+  PHASE 4 — KUBERNETES / K3s (Orchestration de conteneurs)
+  Projet 2 — Planification & Logistique — UMP Oujda
+  Master M2I — Cloud Computing — 2025/2026
+================================================================================
+
+  OBJECTIF DE LA PHASE 4
+  ----------------------
+  Déployer la même architecture microservices (Phase 2 Docker Compose) sur un
+  cluster Kubernetes, en utilisant les primitives K8s :
+    • Namespace isolé
+    • StatefulSets pour MySQL (persistance PVC)
+    • Deployments pour WildFly
+    • Services ClusterIP (DNS interne)
+    • Ingress Traefik (K3s) ou NodePort (démo simple)
+    • Secrets + ConfigMaps pour la configuration
+
+  Correspondance des phases :
+    Phase 2 → Docker Compose (développement local)
+    Phase 3 → Vagrant + Docker Compose (VM reproductible)
+    Phase 4 → Kubernetes (orchestration Cloud-native)
+
+================================================================================
+  STRUCTURE DU DOSSIER k8s/
+================================================================================
+
+  k8s/
+  ├── namespace.yaml
+  ├── kustomization.yaml          ← Point d'entrée : kubectl apply -k k8s/
+  ├── ingress.yaml                ← Routage HTTP (Traefik / K3s)
+  ├── nodeport-services.yaml      ← Accès direct ports 30081-30083
+  ├── secrets/                    ← Mots de passe MySQL
+  ├── configmaps/                 ← Variables d'environnement apps
+  ├── databases/                  ← StatefulSets MySQL 8
+  ├── apps/                       ← Deployments WildFly
+  ├── init-scripts/               ← init.sql (sync depuis services)
+  └── scripts/
+      ├── build-images.sh         ← docker build ump/service-*:1.0.0
+      ├── import-images-k3s.sh    ← docker save | k3s ctr images import
+      ├── sync-init-sql.sh        ← Copie init.sql vers k8s/init-scripts/
+      ├── deploy.sh               ← Déploiement complet
+      └── undeploy.sh             ← Suppression namespace
+
+================================================================================
+  ARCHITECTURE KUBERNETES
+================================================================================
+
+  Namespace : planification
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Ingress (planification.local)  OU  NodePort 30081 / 30082 / 30083      │
+  └────────────┬──────────────────────┬──────────────────────┬──────────────┘
+               │                      │                      │
+       service-catalogue      service-locaux      service-emploi-du-temps
+         (Deployment)            (Deployment)            (Deployment)
+               │                      │                      │
+          catalogue-db             locaux-db              emploi-db
+         (StatefulSet)           (StatefulSet)          (StatefulSet)
+               │                      │                      │
+            PVC 1Gi                PVC 1Gi                PVC 1Gi
+
+  DNS interne (identique Docker Compose) :
+    catalogue-db:3306
+    locaux-db:3306
+    emploi-db:3306
+    service-catalogue:8080
+    service-locaux:8080
+    service-emploi-du-temps:8080
+
+  Variables inter-services (emploi) :
+    CATALOGUE_BASE_URL=http://service-catalogue:8080
+    LOCAUX_BASE_URL=http://service-locaux:8080
+
+================================================================================
+  PRÉREQUIS
+================================================================================
+
+  Option A — K3s sur Linux / VM Vagrant (recommandé pour le cours)
+    • Ubuntu 22.04 (VM Phase 3 ou serveur)
+    • 4 Go RAM minimum (8 Go conseillé)
+    • curl, docker (pour build images)
+
+  Option B — Docker Desktop + Kubernetes
+    • Activer Kubernetes dans Docker Desktop
+    • kubectl intégré
+
+  Option C — Minikube / Kind
+    • Adapter import-images selon la doc de l'outil
+
+  Outils requis :
+    kubectl 1.28+
+    docker (build des images WildFly)
+    k3s (option A)
+
+================================================================================
+  INSTALLATION K3s (dans la VM Vagrant Phase 3)
+================================================================================
+
+  1. Se connecter à la VM :
+       vagrant ssh
+
+  2. Installer K3s (cluster single-node) :
+       curl -sfL https://get.k3s.io | sh -
+
+  3. Configurer kubectl pour vagrant :
+       mkdir -p ~/.kube
+       sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+       sudo chown vagrant:vagrant ~/.kube/config
+       export KUBECONFIG=~/.kube/config
+
+  4. Vérifier :
+       kubectl get nodes
+       # NAME     STATUS   ROLES                  AGE   VERSION
+       # ...      Ready    control-plane,master   ...   v1.28+
+
+  Note : K3s inclut Traefik (Ingress) et containerd.
+         Les images Docker doivent être importées via import-images-k3s.sh
+
+================================================================================
+  DÉPLOIEMENT RAPIDE (depuis la racine du projet)
+================================================================================
+
+  Depuis Git Bash ou Linux (dans la VM ou sur un nœud K3s) :
+
+    cd projet2-planification
+    chmod +x k8s/scripts/*.sh
+    ./k8s/scripts/deploy.sh
+
+  Le script deploy.sh :
+    1. Build les 3 images Docker (ump/service-*:1.0.0)
+    2. Importe dans K3s si disponible
+    3. Synchronise init.sql
+    4. kubectl apply -k k8s/
+    5. Attend les pods Ready
+
+  Variables optionnelles :
+    BUILD_IMAGES=0 ./k8s/scripts/deploy.sh    # Skip build
+    IMPORT_K3S=0 ./k8s/scripts/deploy.sh      # Skip import K3s
+
+================================================================================
+  DÉPLOIEMENT MANUEL (étape par étape)
+================================================================================
+
+  1. Build images :
+       ./k8s/scripts/build-images.sh
+
+  2. Import K3s :
+       ./k8s/scripts/import-images-k3s.sh
+
+  3. Sync init.sql :
+       ./k8s/scripts/sync-init-sql.sh
+
+  4. Appliquer manifests :
+       kubectl apply -k k8s/
+
+  5. Suivre le démarrage (WildFly ~90-120 s) :
+       kubectl get pods -n planification -w
+
+  6. Vérifier :
+       kubectl get all -n planification
+
+================================================================================
+  ACCÈS AUX API
+================================================================================
+
+  OPTION A — NodePort (plus simple pour la démo)
+  -----------------------------------------------
+  Ports alignés sur Docker Compose (8081→30081, etc.) :
+
+    Catalogue : http://<IP_NOEUD>:30081/api/cours
+    Locaux    : http://<IP_NOEUD>:30082/api/locaux
+    Emploi    : http://<IP_NOEUD>:30083/api/emploi-du-temps
+
+  Sur K3s single-node / VM Vagrant :
+    IP_NOEUD = 127.0.0.1 ou IP de la VM (ex. 192.168.56.10)
+
+  OPTION B — Ingress Traefik (K3s)
+  --------------------------------
+  1. Ajouter dans /etc/hosts (ou C:\Windows\System32\drivers\etc\hosts) :
+       127.0.0.1 planification.local
+
+  2. Tester :
+       curl http://planification.local/api/cours
+       curl http://planification.local/api/locaux
+       curl http://planification.local/api/emploi-du-temps
+
+  Règles Ingress (pathType: Prefix) :
+    /api/cours            → service-catalogue:8080
+    /api/locaux           → service-locaux:8080
+    /api/emploi-du-temps  → service-emploi-du-temps:8080
+
+================================================================================
+  TESTS ET VÉRIFICATION
+================================================================================
+
+  État des pods :
+    kubectl get pods -n planification
+
+  Tous doivent être Running et Ready (1/1) après ~2-3 minutes.
+
+  Logs WildFly :
+    kubectl logs -n planification deploy/service-catalogue
+    kubectl logs -n planification deploy/service-emploi-du-temps
+
+  Logs MySQL :
+    kubectl logs -n planification statefulset/catalogue-db
+
+  Test curl (exemple) :
+    curl -s http://localhost:30081/api/cours | head
+    curl -s http://localhost:30082/api/locaux | head
+    curl -s http://localhost:30083/api/emploi-du-temps | head
+
+  Créer une séance (emploi du temps) :
+    curl -X POST http://localhost:30083/api/emploi-du-temps \
+      -H "Content-Type: application/json" \
+      -d '{"coursId":1,"localId":1,"jour":"LUNDI","heureDebut":"08:00","heureFin":"10:00","groupe":"M2I-G1"}'
+
+  Adapter test.sh pour K8s :
+    export CATALOGUE_URL=http://localhost:30081
+    export LOCAUX_URL=http://localhost:30082
+    export EMPLOI_URL=http://localhost:30083
+    ./test.sh
+
+================================================================================
+  SUPPRESSION / REDÉPLOIEMENT
+================================================================================
+
+  Supprimer tout le déploiement :
+    ./k8s/scripts/undeploy.sh
+
+  Ou manuellement :
+    kubectl delete -k k8s/
+
+  Les PVC (données MySQL) sont supprimés avec le namespace.
+  Pour repartir de zéro avec init.sql :
+    undeploy puis redeploy.
+
+================================================================================
+  CORRESPONDANCE DOCKER COMPOSE ↔ KUBERNETES
+================================================================================
+
+  | Compose (Phase 2)        | Kubernetes (Phase 4)              |
+  |--------------------------|-----------------------------------|
+  | compose service          | Deployment + Service              |
+  | catalogue-db container   | StatefulSet catalogue-db            |
+  | ports 8081:8080          | NodePort 30081 (ou Ingress)       |
+  | planification-net        | DNS cluster (namespace)           |
+  | env_file / environment   | ConfigMap + Secret                |
+  | volumes init.sql         | ConfigMap catalogue-db-init       |
+  | depends_on + healthcheck | initContainers + probes           |
+  | docker compose up        | kubectl apply -k k8s/             |
+
+================================================================================
+  DÉPANNAGE
+================================================================================
+
+  Pod ImagePullBackOff :
+    → Images non importées dans K3s. Lancer import-images-k3s.sh
+
+  Pod CrashLoopBackOff (WildFly) :
+    → kubectl logs pour voir l'erreur JDBC
+    → Vérifier que MySQL est Ready : kubectl get pods -n planification
+
+  Emploi du temps ne démarre pas :
+    → Init containers attendent catalogue + locaux
+    → kubectl describe pod -n planification -l app=service-emploi-du-temps
+
+  MySQL sans données initiales :
+    → PVC déjà créé (init.sql ignoré). Supprimer PVC et redéployer :
+       kubectl delete pvc --all -n planification
+       kubectl apply -k k8s/
+
+  CRLF sur scripts .sh (Windows) :
+    → Exécuter dans Git Bash ou VM Linux
+    → sed -i 's/\r$//' k8s/scripts/*.sh
+
+  Ports NodePort inaccessibles depuis Windows hôte (VM) :
+    → Forwarder les ports dans Vagrantfile (30081-30083) si K3s tourne dans VM
+
+================================================================================
+  POINTS POUR LA SOUTENANCE
+================================================================================
+
+  1. Expliquer pourquoi StatefulSet pour MySQL (identité stable, PVC)
+  2. Montrer kubectl get pods -n planification (6 pods)
+  3. Démontrer la résolution DNS interne (service-catalogue depuis emploi)
+  4. Comparer Compose vs K8s (self-healing, probes, scaling possible)
+  5. Montrer Ingress OU NodePort selon l'environnement de démo
+
+  Trinôme :
+    Ayoub  — service-emploi-du-temps (orchestrateur)
+    Aymane — service-catalogue
+    Amine  — service-locaux
+
+================================================================================
+  FIN DU GUIDE PHASE 4
+================================================================================

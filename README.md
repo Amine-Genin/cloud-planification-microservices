@@ -23,6 +23,10 @@ Ce projet met en place une architecture **microservices** pour la planification 
 
 L’orchestration est assurée par **Docker Compose v2** avec un réseau partagé `planification-net` et des healthchecks sur les bases MySQL et les applications WildFly.
 
+**Phase 3 (Vagrant) :** la même stack peut tourner dans une VM Ubuntu provisionnée automatiquement. Voir `PHASE3_VAGRANT.txt` et `vagrant up`.
+
+**Phase 4 (Kubernetes) :** déploiement sur K3s avec manifests `k8s/`. Voir `PHASE4_K8S.txt` et `./k8s/scripts/deploy.sh`.
+
 ---
 
 ## 2. Prérequis
@@ -68,6 +72,49 @@ Pour réinitialiser les bases et recharger les données `init.sql` :
 docker compose down -v
 docker compose up --build -d
 ```
+
+### Phase 3 — Lancement via Vagrant (VM Ubuntu + Docker)
+
+Prérequis hôte : **VirtualBox** + **Vagrant**.
+
+```bash
+cd projet2-planification
+vagrant up
+```
+
+Après provisionnement (10–20 min la première fois), les API sont accessibles sur la machine hôte :
+
+- http://localhost:8081/api/cours
+- http://localhost:8082/api/locaux
+- http://localhost:8083/api/emploi-du-temps
+
+Tests dans la VM :
+
+```bash
+vagrant ssh -c "cd /home/vagrant/projet2-planification && ./test.sh"
+```
+
+Documentation complète : `PHASE3_VAGRANT.txt`.
+
+### Phase 4 — Déploiement Kubernetes (K3s)
+
+Prérequis : **kubectl** + cluster **K3s** (ou Docker Desktop Kubernetes).
+
+```bash
+cd projet2-planification
+chmod +x k8s/scripts/*.sh   # Git Bash / Linux
+./k8s/scripts/deploy.sh
+```
+
+Accès API via **NodePort** (aligné sur les ports Compose) :
+
+- http://localhost:30081/api/cours
+- http://localhost:30082/api/locaux
+- http://localhost:30083/api/emploi-du-temps
+
+Ou via **Ingress** : ajouter `127.0.0.1 planification.local` dans `hosts`, puis http://planification.local/api/cours
+
+Documentation complète : `PHASE4_K8S.txt`.
 
 ---
 

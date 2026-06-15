@@ -6,3 +6,4 @@ nbproject/private/
 build/
 *.log
 .DS_Store
+.vagrant/

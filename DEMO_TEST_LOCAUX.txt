@@ -1,0 +1,224 @@
+================================================================================
+  GUIDE DE DÉMO / TEST — service-locaux (port 8082)
+  Projet 2 — Planification & Logistique — UMP Oujda
+================================================================================
+
+  À QUOI SERT CE FICHIER :
+  Ce fichier te donne, étape par étape, toutes les commandes pour TESTER et
+  DÉMONTRER le service-locaux devant le prof.
+  Chaque test indique : la commande, son but, et le RÉSULTAT ATTENDU.
+
+  AVANT DE COMMENCER :
+  1. Docker Desktop lancé.
+  2. Conteneurs démarrés : docker compose up --build -d (attendre 90-120 s).
+  3. Vérifier : docker compose ps → service-locaux "Up (healthy)".
+
+  OÙ TAPER LES COMMANDES :
+  - curl → GIT BASH (pas PowerShell)
+  - ou POSTMAN
+  - GET simples → NAVIGATEUR
+
+  URL DE BASE : http://localhost:8082/api/locaux
+
+  POINT FORT DE CE SERVICE : l'endpoint PATCH de disponibilité (TEST 5-6).
+
+================================================================================
+  TEST 1 — LISTER TOUTES LES SALLES
+================================================================================
+
+  BUT : montrer les 10 salles pré-chargées par init.sql.
+
+  COMMANDE :
+    curl http://localhost:8082/api/locaux
+
+  OU NAVIGATEUR :
+    http://localhost:8082/api/locaux
+
+  RÉSULTAT ATTENDU : HTTP 200 + 10 salles :
+    [
+      {"id":1,"code":"AMPHI-A","nom":"Amphi Ibn Khaldoun","type":"AMPHI",
+       "capacite":200,...,"disponibilite":"DISPONIBLE"},
+      ... (10 salles, dont AMPHI-C en EN_MAINTENANCE)
+    ]
+
+  CE QUE JE DIS AU PROF :
+  « Voici les 10 salles : amphis, salles de cours, salles de TP, labos. Chacune
+   a des équipements (projecteur, climatisation, accès PMR) et un état de
+   disponibilité. Notez que AMPHI-C est en maintenance. »
+
+================================================================================
+  TEST 2 — LISTER LES SALLES DISPONIBLES (capacité minimale) ★
+================================================================================
+
+  BUT : montrer le filtrage par disponibilité + capacité.
+        (C'est l'endpoint que l'orchestrateur emploi-du-temps utilise.)
+
+  COMMANDE (salles libres avec au moins 100 places) :
+    curl "http://localhost:8082/api/locaux/disponibles?capaciteMin=100"
+
+  RÉSULTAT ATTENDU : HTTP 200 + AMPHI-A et AMPHI-B uniquement :
+    [
+      {"id":2,"code":"AMPHI-B","capacite":180,"disponibilite":"DISPONIBLE",...},
+      {"id":1,"code":"AMPHI-A","capacite":200,"disponibilite":"DISPONIBLE",...}
+    ]
+
+  IMPORTANT : AMPHI-C (250 places) N'APPARAÎT PAS car il est EN_MAINTENANCE.
+
+  CE QUE JE DIS AU PROF :
+  « Cet endpoint ne retourne que les salles DISPONIBLES avec une capacité
+   suffisante. AMPHI-C est exclu car en maintenance. C'est exactement ce que
+   le service emploi-du-temps consulte avant de planifier une séance. »
+
+================================================================================
+  TEST 3 — FILTRER PAR TYPE
+================================================================================
+
+  BUT : montrer la recherche par type de salle.
+
+  COMMANDE (les laboratoires) :
+    curl http://localhost:8082/api/locaux/type/LABO
+
+  RÉSULTAT ATTENDU : HTTP 200 + LABO-IA et LABO-SEC :
+    [
+      {"id":7,"code":"LABO-IA","type":"LABO",...},
+      {"id":8,"code":"LABO-SEC","type":"LABO",...}
+    ]
+
+  AUTRES TYPES À ESSAYER : AMPHI, SALLE_COURS, SALLE_TP
+
+================================================================================
+  TEST 4 — TYPE INVALIDE (cas d'erreur 400)
+================================================================================
+
+  BUT : prouver la robustesse face à une mauvaise valeur.
+
+  COMMANDE :
+    curl -i http://localhost:8082/api/locaux/type/PISCINE
+
+  RÉSULTAT ATTENDU : HTTP 400 Bad Request :
+    {"erreur":"Type de local invalide : PISCINE","statut":400}
+
+================================================================================
+  TEST 5 — RÉSERVER UNE SALLE (PATCH → OCCUPE) ★★★ TEST PHARE
+================================================================================
+
+  BUT : démontrer le changement d'état — l'endpoint le plus important.
+
+  COMMANDE :
+    curl -i -X PATCH "http://localhost:8082/api/locaux/1/disponibilite?valeur=OCCUPE"
+
+  RÉSULTAT ATTENDU : HTTP 200 + la salle 1 maintenant OCCUPE :
+    {"id":1,"code":"AMPHI-A",...,"disponibilite":"OCCUPE"}
+
+  VÉRIFICATION (la salle 1 a disparu des disponibles) :
+    curl "http://localhost:8082/api/locaux/disponibles?capaciteMin=100"
+    → AMPHI-A (id 1) n'est plus dans la liste, seul AMPHI-B reste.
+
+  CE QUE JE DIS AU PROF :
+  « C'est l'endpoint clé de mon service. Avec PATCH, je change UNIQUEMENT l'état
+   de disponibilité, pas toute la salle. C'est par cet endpoint que
+   l'orchestrateur emploi-du-temps réserve les salles lors de la planification. »
+
+  ─────────────────────────────────────────────────────────────────────
+  POSTMAN :
+    Méthode : PATCH
+    URL     : http://localhost:8082/api/locaux/1/disponibilite?valeur=OCCUPE
+    Send    → voir 200 + disponibilite "OCCUPE"
+  ─────────────────────────────────────────────────────────────────────
+
+================================================================================
+  TEST 6 — LIBÉRER LA SALLE (PATCH → DISPONIBLE) ★
+================================================================================
+
+  BUT : remettre la salle disponible (l'inverse du TEST 5).
+
+  COMMANDE :
+    curl -i -X PATCH "http://localhost:8082/api/locaux/1/disponibilite?valeur=DISPONIBLE"
+
+  RÉSULTAT ATTENDU : HTTP 200 + la salle 1 redevient DISPONIBLE :
+    {"id":1,"code":"AMPHI-A",...,"disponibilite":"DISPONIBLE"}
+
+  VÉRIFICATION :
+    curl "http://localhost:8082/api/locaux/disponibles?capaciteMin=100"
+    → AMPHI-A (id 1) réapparaît dans la liste.
+
+================================================================================
+  TEST 7 — VALEUR DE DISPONIBILITÉ INVALIDE (erreur 400)
+================================================================================
+
+  BUT : prouver la validation de l'enum.
+
+  COMMANDE :
+    curl -i -X PATCH "http://localhost:8082/api/locaux/1/disponibilite?valeur=PRISE"
+
+  RÉSULTAT ATTENDU : HTTP 400 :
+    {"erreur":"Valeur de disponibilité invalide : PRISE","statut":400}
+
+  (Seules les valeurs DISPONIBLE, OCCUPE, EN_MAINTENANCE sont acceptées.)
+
+================================================================================
+  TEST 8 — CRÉER UNE SALLE (POST → 201)
+================================================================================
+
+  BUT : démontrer la création d'une salle.
+
+  COMMANDE :
+    curl -X POST http://localhost:8082/api/locaux \
+      -H "Content-Type: application/json" \
+      -d '{"code":"SALLE-E101","nom":"Salle E101","type":"SALLE_COURS","capacite":50,"batiment":"Bloc E","etage":1,"projecteur":true,"climatisation":true}'
+
+  RÉSULTAT ATTENDU : HTTP 201 + la salle créée avec son id :
+    {"id":11,"code":"SALLE-E101","nom":"Salle E101",...,"disponibilite":"DISPONIBLE"}
+
+  NOTE : par défaut, une nouvelle salle est DISPONIBLE.
+
+================================================================================
+  TEST 9 — SUPPRIMER UNE SALLE (DELETE → 204)
+================================================================================
+
+  BUT : démontrer la suppression.
+
+  COMMANDE (remplacer 11 par l'id obtenu au TEST 8) :
+    curl -i -X DELETE http://localhost:8082/api/locaux/11
+
+  RÉSULTAT ATTENDU : HTTP 204 No Content.
+
+  VÉRIFICATION :
+    curl -i http://localhost:8082/api/locaux/11
+    → HTTP 404 (la salle n'existe plus)
+
+================================================================================
+  ORDRE RECOMMANDÉ POUR LA DÉMO (2-3 minutes)
+================================================================================
+
+  1. TEST 1 → lister toutes les salles            (montrer les données)
+  2. TEST 2 → salles disponibles capaciteMin=100  (filtrage)
+  3. TEST 5 → réserver la salle 1 (OCCUPE)         (PATCH) ★ moment fort
+  4. TEST 2 → re-lister disponibles                (la salle 1 a disparu !)
+  5. TEST 6 → libérer la salle 1 (DISPONIBLE)      (PATCH)
+  6. TEST 3 → filtrer par type LABO                (recherche)
+
+  PHRASE DE CONCLUSION :
+  « J'ai démontré le CRUD des salles ainsi que la gestion de disponibilité via
+   PATCH. C'est cet endpoint de disponibilité qui permet à l'orchestrateur de
+   réserver et libérer les salles automatiquement lors de la planification. »
+
+================================================================================
+  RÉCAPITULATIF DES CODES HTTP
+================================================================================
+
+    200 OK          → lecture / PATCH / PUT réussis
+    201 Created     → salle créée
+    204 No Content  → salle supprimée
+    400 Bad Request → type ou disponibilité invalide, données manquantes
+    404 Not Found   → salle introuvable
+    500 Internal    → erreur technique
+
+  RAPPEL DES ÉTATS DE DISPONIBILITÉ :
+    DISPONIBLE     → libre, réservable
+    OCCUPE         → réservée (séance en cours)
+    EN_MAINTENANCE → indisponible (jamais réservable automatiquement)
+
+================================================================================
+  FIN DU GUIDE DE TEST — service-locaux
+================================================================================

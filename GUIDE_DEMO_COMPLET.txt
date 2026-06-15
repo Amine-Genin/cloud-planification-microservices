@@ -1,0 +1,266 @@
+================================================================================
+  GUIDE MAÎTRE — COMMENT FAIRE LA DÉMO DU DÉBUT À LA FIN
+  Projet 2 — Planification & Logistique — UMP Oujda
+  Trinôme : Ayoub (emploi-du-temps) + Aymane (catalogue) + Amine (locaux)
+================================================================================
+
+  LIS CE FICHIER EN PREMIER.
+  Il te dit, dans l'ordre exact : ce qu'il te faut, comment démarrer, quels
+  fichiers de test ouvrir, qui parle quand, et comment finir proprement.
+
+  LES AUTRES FICHIERS (à garder ouverts à côté pendant la démo) :
+    • DEMO_TEST_CATALOGUE.txt        → tests du service catalogue (Aymane)
+    • DEMO_TEST_LOCAUX.txt           → tests du service locaux (Amine)
+    • DEMO_TEST_EMPLOI_DU_TEMPS.txt  → tests de l'orchestrateur (Ayoub) ★
+    • AYOUB_SERVICE_EMPLOI_DU_TEMPS.txt / AYMANE_... / AMINE_... → fiches théorie
+    • RAPPORT_GENERAL.txt            → le rapport complet (référence)
+
+================================================================================
+  PARTIE A — CE DONT TU AS BESOIN (matériel / logiciel)
+================================================================================
+
+  AVANT LE JOUR J, vérifier que tu as :
+
+  ☐ Docker Desktop installé ET qui démarre correctement
+  ☐ Git Bash installé (pour curl et test.sh)
+  ☐ Postman installé + collection importée (postman_collection.json)
+  ☐ Un navigateur (Chrome/Edge) pour les GET simples
+  ☐ Le projet ouvert dans VS Code / l'éditeur
+  ☐ Une connexion (pour le premier build qui télécharge les images Docker)
+
+  ASTUCE : fais un essai COMPLET de la démo la veille, pour éviter les surprises.
+
+================================================================================
+  PARTIE B — DÉMARRAGE (à faire 5 minutes AVANT de présenter)
+================================================================================
+
+  ÉTAPE 1 : Lancer Docker Desktop
+  ────────────────────────────────
+    Ouvre Docker Desktop et attends qu'il soit "Running" (icône verte).
+
+  ÉTAPE 2 : Ouvrir un terminal dans le dossier du projet
+  ────────────────────────────────────────────────────────
+    Ouvre PowerShell ou Git Bash, puis place-toi dans le dossier :
+      cd "c:\Users\DELL\Documents\Master\Master_M2I\SEMESTRE 2\Cloud Computing\Projets\MiniProjet2\projet2-planification"
+
+  ÉTAPE 3 : DÉMARRER PROPREMENT (très important pour des IDs prévisibles)
+  ────────────────────────────────────────────────────────────────────────
+    Pour repartir d'une base fraîche (cours 1-10, salles 1-10) :
+
+      docker compose down -v
+      docker compose up --build -d
+
+    EXPLICATION :
+      down -v       → supprime les anciens conteneurs ET les données (volumes)
+      up --build -d → reconstruit les images et lance les 6 conteneurs en fond
+
+  ÉTAPE 4 : ATTENDRE 90 à 120 secondes
+  ───────────────────────────────────────
+    WildFly et MySQL démarrent lentement. Patiente ~2 minutes.
+
+  ÉTAPE 5 : Vérifier que tout est "healthy"
+  ────────────────────────────────────────────
+      docker compose ps
+
+    RÉSULTAT ATTENDU : 6 conteneurs tous "Up (healthy)" :
+      service-catalogue        Up (healthy)   0.0.0.0:8081->8080/tcp
+      catalogue-db             Up (healthy)
+      service-locaux           Up (healthy)   0.0.0.0:8082->8080/tcp
+      locaux-db                Up (healthy)
+      service-emploi-du-temps  Up (healthy)   0.0.0.0:8083->8080/tcp
+      emploi-db                Up (healthy)
+
+    ⚠ Si un service n'est pas "healthy", attends encore 30 s et refais ps.
+    Si ça bloque, voir PARTIE F (dépannage).
+
+  TU ES PRÊT. Ne touche plus à rien jusqu'à la présentation.
+
+================================================================================
+  PARTIE C — DÉROULÉ DE LA DÉMO (ordre exact, 8-10 minutes)
+================================================================================
+
+  L'idée : on présente dans l'ordre logique de l'architecture.
+  D'abord les 2 services autonomes (catalogue, locaux), puis l'orchestrateur
+  qui les utilise. Chaque membre présente SON service.
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  MOMENT 0 — INTRODUCTION (30 secondes, Ayoub ou n'importe qui)        │
+  └──────────────────────────────────────────────────────────────────────┘
+    Dire :
+    « Notre projet est une architecture microservices pour la planification
+     académique. Trois services Jakarta EE indépendants, chacun avec sa base
+     MySQL, conteneurisés avec Docker, qui communiquent par API REST.
+     Je vais d'abord montrer que les 6 conteneurs tournent. »
+
+    Montrer : docker compose ps  (les 6 conteneurs healthy)
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  MOMENT 1 — SERVICE CATALOGUE (Aymane, ~2 min)                        │
+  │  FICHIER À SUIVRE : DEMO_TEST_CATALOGUE.txt                           │
+  └──────────────────────────────────────────────────────────────────────┘
+    Aymane ouvre DEMO_TEST_CATALOGUE.txt et fait, dans l'ordre :
+      1. TEST 1 → lister les 10 cours
+      2. TEST 3 → trouver par code INF305
+      3. TEST 5 → créer le cours INF311 (201)
+      4. TEST 6 → recréer INF311 → erreur 400 (UNICITÉ) ★
+      5. TEST 8 → supprimer INF311 (204)
+
+    Phrase de fin (Aymane) :
+    « Voilà le CRUD du catalogue avec validation et unicité du code. Ce service
+     est autonome ; il sera consulté par l'orchestrateur. »
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  MOMENT 2 — SERVICE LOCAUX (Amine, ~2 min)                            │
+  │  FICHIER À SUIVRE : DEMO_TEST_LOCAUX.txt                              │
+  └──────────────────────────────────────────────────────────────────────┘
+    Amine ouvre DEMO_TEST_LOCAUX.txt et fait, dans l'ordre :
+      1. TEST 1 → lister les 10 salles
+      2. TEST 2 → salles disponibles capaciteMin=100
+      3. TEST 5 → réserver la salle 1 (PATCH → OCCUPE) ★
+      4. TEST 2 → re-lister disponibles (la salle 1 a disparu !)
+      5. TEST 6 → libérer la salle 1 (PATCH → DISPONIBLE)
+
+    Phrase de fin (Amine) :
+    « Mon service gère les salles et surtout leur disponibilité via PATCH.
+     C'est cet endpoint que l'orchestrateur va utiliser pour réserver. »
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  MOMENT 3 — SERVICE EMPLOI-DU-TEMPS (Ayoub, ~4 min) ★★★ LE CŒUR       │
+  │  FICHIER À SUIVRE : DEMO_TEST_EMPLOI_DU_TEMPS.txt                     │
+  └──────────────────────────────────────────────────────────────────────┘
+    ⚠ IMPORTANT : avant ce moment, assure-toi que la salle 1 est DISPONIBLE
+    (Amine l'a libérée au MOMENT 2, TEST 6). Sinon refais le PATCH DISPONIBLE.
+
+    Ayoub ouvre DEMO_TEST_EMPLOI_DU_TEMPS.txt et fait, dans l'ordre :
+      1. TEST 1 → lister les séances (vide [])
+      2. TEST 3 → planifier séance LUNDI 08:00-10:00 (201) ★
+      3. TEST 4 → montrer salle 1 devenue OCCUPE (PREUVE orchestration) ★★★
+      4. TEST 5 → tenter conflit 09:00-11:00 → 409 (DÉTECTION CONFLIT) ★★★
+      5. TEST 6 → créneau consécutif 10:00-12:00 → 201 (algorithme intelligent)
+      6. TEST 7 → cours inexistant 9999 → 400 (vérif catalogue)
+      7. TEST 9 → lister les séances du lundi
+
+    Phrase de fin (Ayoub) :
+    « Mon service orchestre les deux autres : il vérifie le cours via catalogue,
+     la salle via locaux, détecte les conflits horaires, réserve la salle et
+     enregistre la séance. C'est le cœur de l'architecture microservices. »
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  MOMENT 4 — TESTS AUTOMATISÉS (Ayoub ou n'importe qui, ~1 min)        │
+  └──────────────────────────────────────────────────────────────────────┘
+    Pour prouver que TOUT est validé automatiquement, lancer le script :
+
+      [Git Bash, dans projet2-planification]
+      chmod +x test.sh
+      ./test.sh
+
+    Montrer les 14 [PASS] en vert + "RÉSULTAT GLOBAL : SUCCÈS".
+
+    Dire :
+    « Ce script enchaîne 14 tests d'intégration bout-en-bout : création,
+     planification, conflit, lecture, suppression, libération de salle.
+     Tout passe automatiquement. »
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  MOMENT 5 — EXPLICATION ARCHITECTURE (tous, ~1 min)                   │
+  └──────────────────────────────────────────────────────────────────────┘
+    Montrer le schéma (dans RAPPORT_GENERAL.txt section 3, ou le dessiner) :
+    3 services + 3 bases MySQL + flèches HTTP (emploi → catalogue / locaux).
+    Insister sur : database per service, couplage unidirectionnel, Docker Compose.
+
+================================================================================
+  PARTIE D — PAR QUEL FICHIER COMMENCER ? (résumé simple)
+================================================================================
+
+  ORDRE DES FICHIERS DE TEST À OUVRIR ET SUIVRE :
+
+    1er → GUIDE_DEMO_COMPLET.txt        (CE FICHIER — vue d'ensemble)
+    2e  → DEMO_TEST_CATALOGUE.txt       (Aymane présente)
+    3e  → DEMO_TEST_LOCAUX.txt          (Amine présente)
+    4e  → DEMO_TEST_EMPLOI_DU_TEMPS.txt (Ayoub présente — le plus important) ★
+
+  CONSEIL : garde ces 4 fichiers ouverts dans des onglets de l'éditeur,
+  et Postman ouvert à côté. Tu n'as qu'à copier-coller les commandes.
+
+================================================================================
+  PARTIE E — SI TU DÉMONTRES SEUL (sans Aymane ni Amine)
+================================================================================
+
+  Si tu présentes seul, fais tout dans cet ordre court (5 minutes) :
+
+    1. docker compose ps                       → montrer 6 conteneurs healthy
+    2. DEMO_TEST_EMPLOI_DU_TEMPS TEST 3        → planifier (201)
+    3. DEMO_TEST_EMPLOI_DU_TEMPS TEST 4        → salle OCCUPE (orchestration)
+    4. DEMO_TEST_EMPLOI_DU_TEMPS TEST 5        → conflit (409) ★
+    5. ./test.sh                               → 14 tests verts
+
+  Ces 5 étapes suffisent à prouver que toute l'architecture fonctionne.
+
+================================================================================
+  PARTIE F — DÉPANNAGE (si quelque chose ne marche pas)
+================================================================================
+
+  PROBLÈME : un conteneur n'est pas "healthy"
+    → Attends 30-60 s de plus (WildFly est lent), puis : docker compose ps
+    → Voir les logs : docker compose logs service-emploi-du-temps
+
+  PROBLÈME : curl renvoie une erreur sous PowerShell
+    → Utilise GIT BASH, pas PowerShell (PowerShell casse le JSON avec -d).
+    → Ou utilise Postman.
+
+  PROBLÈME : les IDs ne correspondent pas (cours/salle introuvable)
+    → Tu as sûrement déjà modifié les données. Repars propre :
+        docker compose down -v
+        docker compose up --build -d
+      (attendre 2 min)
+
+  PROBLÈME : "port already in use" (8081/8082/8083 occupé)
+    → Un ancien conteneur tourne encore. Fais : docker compose down
+    → Puis relance : docker compose up --build -d
+
+  PROBLÈME : conflit 409 attendu mais j'obtiens 201
+    → La salle a peut-être été libérée ou les données réinitialisées.
+    → Refais TEST 3 (planifier) PUIS TEST 5 (conflit) dans l'ordre.
+
+  PROBLÈME : la démo plante complètement
+    → Plan B : lance simplement ./test.sh qui prouve tout automatiquement.
+
+================================================================================
+  PARTIE G — ARRÊT PROPRE (après la démo)
+================================================================================
+
+  Pour arrêter les conteneurs (sans supprimer les données) :
+      docker compose down
+
+  Pour tout supprimer (conteneurs + données) :
+      docker compose down -v
+
+================================================================================
+  CHECKLIST FINALE (à cocher juste avant de présenter)
+================================================================================
+
+  ☐ Docker Desktop est "Running"
+  ☐ docker compose up --build -d a été lancé il y a > 2 minutes
+  ☐ docker compose ps montre 6 conteneurs "healthy"
+  ☐ Git Bash est ouvert dans le dossier du projet
+  ☐ Postman est ouvert avec la collection importée
+  ☐ Les 4 fichiers DEMO_*.txt sont ouverts dans l'éditeur
+  ☐ J'ai testé GET http://localhost:8081/api/cours dans le navigateur (ça répond)
+  ☐ Chaque membre sait quel fichier il présente
+
+================================================================================
+  RÉSUMÉ ULTRA-COURT (si tu ne lis qu'une chose)
+================================================================================
+
+  1. Docker Desktop ON
+  2. docker compose down -v  puis  docker compose up --build -d
+  3. Attendre 2 min, puis docker compose ps (6 healthy)
+  4. Aymane → DEMO_TEST_CATALOGUE.txt
+  5. Amine  → DEMO_TEST_LOCAUX.txt
+  6. Ayoub  → DEMO_TEST_EMPLOI_DU_TEMPS.txt (planifier → salle OCCUPE → conflit 409)
+  7. ./test.sh (14 tests verts)
+  8. docker compose down
+
+================================================================================
+  FIN DU GUIDE MAÎTRE DE DÉMO
+================================================================================

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: locaux-db
+  namespace: planification
+  labels:
+    app: locaux-db
+spec:
+  type: ClusterIP
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+  selector:
+    app: locaux-db
+  clusterIP: None

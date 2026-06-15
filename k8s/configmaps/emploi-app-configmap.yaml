@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: emploi-app-config
+  namespace: planification
+  labels:
+    app: service-emploi-du-temps
+data:
+  DATASOURCE_NAME: EmploiDS
+  DB_HOST: emploi-db
+  DB_PORT: "3306"
+  DB_NAME: emploi_db
+  DB_USER: emploi_user
+  CATALOGUE_BASE_URL: http://service-catalogue:8080
+  LOCAUX_BASE_URL: http://service-locaux:8080

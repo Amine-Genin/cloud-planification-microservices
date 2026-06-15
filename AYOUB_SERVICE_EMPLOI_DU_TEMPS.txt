@@ -1,0 +1,765 @@
+================================================================================
+  FICHE PERSONNELLE DE SOUTENANCE — AYOUB
+  SERVICE : service-emploi-du-temps (ORCHESTRATEUR)
+  Projet 2 — Planification & Logistique académique — UMP Oujda
+  Master M2I — Cloud Computing — Semestre 2 — 2025/2026
+================================================================================
+
+  RÉPARTITION DU TRINÔME :
+    • Ayoub  → service-emploi-du-temps  (CE DOCUMENT) ★
+    • Aymane → service-catalogue   (ou service-locaux)
+    • Amine  → service-locaux      (ou service-catalogue)
+
+  CE DOCUMENT EST POUR TOI (AYOUB).
+  Il explique TOUT ce que tu dois savoir et savoir dire sur TON service
+  pour la soutenance : rôle, code, fichiers, flux, questions du prof.
+
+================================================================================
+  TABLE DES MATIÈRES
+================================================================================
+
+  1.  Pourquoi mon service est le plus important (résumé pour démarrer)
+  2.  Rôle et responsabilités de service-emploi-du-temps
+  3.  Vue d'ensemble : où est mon service dans l'architecture
+  4.  Tous mes fichiers (carte du code à connaître)
+  5.  Détail fichier par fichier (avec explication ligne par ligne)
+      5.1  Seance.java          (entité / modèle)
+      5.2  JourSemaine.java     (énumération)
+      5.3  TypeSeance.java      (énumération)
+      5.4  HeureUtil.java       (algorithme de conflit) ★ CŒUR TECHNIQUE
+      5.5  EmploiDuTempsException.java (exception métier)
+      5.6  SeanceRepository.java (accès base + détection conflit) ★
+      5.7  CatalogueClient.java  (appel HTTP vers catalogue) ★
+      5.8  LocalClient.java      (appel HTTP vers locaux) ★
+      5.9  EmploiDuTempsService.java (orchestrateur — flux 5 étapes) ★★★
+      5.10 EmploiDuTempsResource.java (endpoints REST)
+  6.  Le FLUX DE PLANIFICATION expliqué pas à pas (LE point central)
+  7.  Le FLUX DE SUPPRESSION expliqué pas à pas
+  8.  Mes endpoints REST (tableau)
+  9.  Comment mon service communique avec les 2 autres
+  10. Ma base de données (table seances)
+  11. Démonstration : ce que je montre au prof
+  12. Questions que le prof VA me poser (avec réponses)
+  13. Phrases clés à retenir par cœur
+  14. Schéma à dessiner au tableau
+
+================================================================================
+  1. POURQUOI MON SERVICE EST LE PLUS IMPORTANT (résumé)
+================================================================================
+
+  Dans notre projet à 3 microservices :
+
+    service-catalogue  → gère les COURS    (autonome, simple CRUD)
+    service-locaux     → gère les SALLES   (autonome, simple CRUD)
+    service-emploi-du-temps → PLANIFIE les séances (MON SERVICE) ★
+
+  MON SERVICE EST L'ORCHESTRATEUR : c'est le SEUL qui appelle les deux autres.
+  Les services catalogue et locaux ne se parlent PAS entre eux et ne
+  connaissent PAS mon service. Moi (emploi-du-temps), je les coordonne.
+
+  C'est donc le service le plus complexe car il contient :
+    • La logique métier de planification (le cœur du projet)
+    • La communication HTTP entre microservices (clients REST)
+    • La détection des conflits horaires (algorithme)
+    • La gestion des transactions distribuées (réserver/libérer salle)
+
+  PHRASE DE DÉMARRAGE EN SOUTENANCE :
+  « Mon service, emploi-du-temps, est l'orchestrateur du projet. Quand on veut
+   planifier une séance, c'est lui qui vérifie que le cours existe en appelant
+   le service catalogue, que la salle est libre en appelant le service locaux,
+   qu'il n'y a pas de conflit horaire, puis il réserve la salle et enregistre
+   la séance. »
+
+================================================================================
+  2. RÔLE ET RESPONSABILITÉS DE service-emploi-du-temps
+================================================================================
+
+  IDENTITÉ TECHNIQUE :
+    Conteneur Docker : service-emploi-du-temps
+    Port hôte        : 8083  →  http://localhost:8083/api/emploi-du-temps
+    Port interne     : 8080  (WildFly dans le conteneur)
+    Base de données  : emploi_db  (conteneur emploi-db, MySQL 8)
+    Package Java     : ma.ump.emploidutemps
+    Fichier déployé  : service-emploi-du-temps.war
+
+  RESPONSABILITÉS :
+    1. Planifier une séance (POST) avec toutes les vérifications
+    2. Lister les séances (toutes, par id, par jour)
+    3. Supprimer une séance et libérer la salle associée
+    4. Détecter les conflits horaires (même salle + même jour + chevauchement)
+    5. Communiquer avec catalogue et locaux via HTTP REST
+
+  CE QUE MON SERVICE NE FAIT PAS :
+    • Il ne stocke PAS les détails des cours (juste un coursId)
+    • Il ne stocke PAS les détails des salles (juste un localId)
+    • Il ne touche PAS aux bases catalogue_db et locaux_db
+    → Il demande l'information par API REST quand il en a besoin.
+
+================================================================================
+  3. VUE D'ENSEMBLE : OÙ EST MON SERVICE DANS L'ARCHITECTURE
+================================================================================
+
+        [Client : Postman / curl / test.sh]
+                      │
+                      │ POST http://localhost:8083/api/emploi-du-temps
+                      ↓
+    ┌─────────────────────────────────────────────────────────┐
+    │           service-emploi-du-temps (MON SERVICE)          │
+    │                                                          │
+    │   EmploiDuTempsResource  (reçoit le HTTP)                │
+    │            ↓                                             │
+    │   EmploiDuTempsService   (logique : flux 5 étapes)       │
+    │            ├──── CatalogueClient ───┐                    │
+    │            ├──── LocalClient ───────┼──┐                 │
+    │            ↓                        │  │                 │
+    │   SeanceRepository (base emploi_db) │  │                 │
+    └─────────────────────────────────────┼──┼─────────────────┘
+                                          │  │
+              HTTP GET /api/cours/{id}    │  │ HTTP GET /api/locaux/disponibles
+                                          ↓  │ HTTP PATCH /api/locaux/{id}/disponibilite
+              ┌──────────────────────┐       │
+              │  service-catalogue   │       │
+              │  (Aymane/Amine)      │       │
+              └──────────────────────┘       ↓
+                                  ┌──────────────────────┐
+                                  │  service-locaux      │
+                                  │  (Amine/Aymane)      │
+                                  └──────────────────────┘
+
+  RÈGLE D'OR : Mon service appelle les 2 autres. Eux ne m'appellent jamais.
+  C'est ce qu'on appelle un COUPLAGE UNIDIRECTIONNEL.
+
+================================================================================
+  4. TOUS MES FICHIERS (carte du code à connaître)
+================================================================================
+
+  service-emploi-du-temps/
+  │
+  ├── compose.yaml        ← config Docker (mon app + emploi-db)
+  ├── Dockerfile          ← build Maven + déploiement WildFly
+  ├── pom.xml             ← dépendances Maven (Jakarta EE 10)
+  │
+  └── src/main/
+      ├── java/ma/ump/emploidutemps/
+      │   │
+      │   ├── entity/                        ← MODÈLE DE DONNÉES
+      │   │   ├── Seance.java                  → la séance (table seances)
+      │   │   ├── JourSemaine.java             → enum LUNDI..SAMEDI
+      │   │   └── TypeSeance.java              → enum COURS_MAGISTRAL, TP, TD
+      │   │
+      │   ├── repository/                     ← ACCÈS BASE DE DONNÉES
+      │   │   └── SeanceRepository.java        → CRUD + existeConflit() ★
+      │   │
+      │   ├── service/                        ← LOGIQUE MÉTIER
+      │   │   └── EmploiDuTempsService.java    → orchestrateur 5 étapes ★★★
+      │   │
+      │   ├── rest/                           ← API REST (HTTP)
+      │   │   ├── EmploiDuTempsResource.java   → endpoints GET/POST/DELETE
+      │   │   └── ApplicationConfig.java       → config JAX-RS (chemin /api)
+      │   │
+      │   ├── client/                         ← COMMUNICATION INTER-SERVICES
+      │   │   ├── CatalogueClient.java         → appel HTTP vers catalogue ★
+      │   │   ├── LocalClient.java             → appel HTTP vers locaux ★
+      │   │   └── dto/
+      │   │       ├── CoursDTO.java            → objet de transfert cours
+      │   │       └── LocalDTO.java            → objet de transfert local
+      │   │
+      │   ├── exception/                      ← GESTION DES ERREURS
+      │   │   ├── EmploiDuTempsException.java         → exception + code HTTP
+      │   │   └── EmploiDuTempsExceptionMapper.java   → mapper JAX-RS
+      │   │
+      │   └── util/                           ← OUTILS
+      │       └── HeureUtil.java               → calcul chevauchement horaire ★
+      │
+      ├── resources/META-INF/
+      │   └── persistence.xml                 → config JPA (emploiPU + datasource)
+      │
+      └── webapp/WEB-INF/
+          ├── beans.xml                       → active CDI
+          └── jboss-web.xml                   → context-root = "/"
+
+  LES 5 FICHIERS LES PLUS IMPORTANTS À MAÎTRISER (marqués ★) :
+    1. EmploiDuTempsService.java  → le flux de planification
+    2. HeureUtil.java             → l'algorithme de conflit
+    3. SeanceRepository.java      → la détection de conflit en base
+    4. CatalogueClient.java       → appel HTTP vers catalogue
+    5. LocalClient.java           → appel HTTP vers locaux
+
+================================================================================
+  5. DÉTAIL FICHIER PAR FICHIER
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+  5.1  Seance.java  (ENTITÉ / MODÈLE DE DONNÉES)
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : représente une séance planifiée. C'est une classe Java mappée
+         sur la table SQL "seances" grâce à JPA.
+
+  CHAMPS (= colonnes de la table) :
+    id          → Long, clé primaire auto-incrémentée
+    coursId     → Long, identifiant du cours (référence vers service-catalogue)
+    localId     → Long, identifiant de la salle (référence vers service-locaux)
+    jour        → JourSemaine (enum), ex: LUNDI
+    heureDebut  → String "HH:mm", ex: "08:00"
+    heureFin    → String "HH:mm", ex: "10:00"
+    semestre    → String, ex: "S2-2026"
+    type        → TypeSeance (enum), ex: COURS_MAGISTRAL
+
+  ANNOTATIONS JPA À EXPLIQUER :
+    @Entity              → cette classe est une table en base
+    @Table(name="seances") → nom de la table SQL
+    @Id                  → ce champ est la clé primaire
+    @GeneratedValue(IDENTITY) → auto-incrément MySQL (1, 2, 3...)
+    @Column(name="cours_id") → mappe le champ Java coursId vers colonne cours_id
+    @Enumerated(EnumType.STRING) → stocke l'enum comme texte ("LUNDI") en base
+                                   et pas comme un nombre (0, 1, 2...)
+
+  POINT IMPORTANT À DIRE AU PROF :
+  « coursId et localId sont de SIMPLES nombres (Long), PAS des clés étrangères
+   SQL. Pourquoi ? Parce que les cours et les salles sont dans D'AUTRES bases
+   de données (catalogue_db et locaux_db), dans d'autres conteneurs. On ne peut
+   pas faire de clé étrangère entre deux bases séparées. L'intégrité est donc
+   vérifiée par appel HTTP (mes clients), pas par contrainte SQL. »
+
+────────────────────────────────────────────────────────────────────────────────
+  5.2  JourSemaine.java  (ÉNUMÉRATION)
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : liste fermée des jours de la semaine autorisés.
+
+  VALEURS : LUNDI, MARDI, MERCREDI, JEUDI, VENDREDI, SAMEDI
+  (pas de DIMANCHE — pas de cours le dimanche à l'université)
+
+  POURQUOI UN ENUM ET PAS UN String ?
+  → Sécurité : impossible d'envoyer "Lundii" ou "funday". Seules les 6 valeurs
+    sont acceptées. Si on envoie un jour invalide → erreur HTTP 400.
+
+────────────────────────────────────────────────────────────────────────────────
+  5.3  TypeSeance.java  (ÉNUMÉRATION)
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : type pédagogique de la séance.
+
+  VALEURS :
+    COURS_MAGISTRAL → cours en amphi (théorie)
+    TP              → travaux pratiques (en labo)
+    TD              → travaux dirigés (exercices en petit groupe)
+
+────────────────────────────────────────────────────────────────────────────────
+  5.4  HeureUtil.java  (ALGORITHME DE CONFLIT) ★ CŒUR TECHNIQUE
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : classe utilitaire qui calcule si deux créneaux horaires
+         se chevauchent. C'est l'algorithme central du projet.
+
+  3 MÉTHODES :
+
+  (a) enMinutes("08:30") → 510
+      Convertit une heure "HH:mm" en minutes depuis minuit.
+      Calcul : 8 * 60 + 30 = 510 minutes.
+      Pourquoi ? Pour comparer des heures avec de simples nombres entiers.
+      Elle valide aussi le format avec une regex : ^([01]\d|2[0-3]):[0-5]\d$
+
+  (b) intervalleValide("08:00", "10:00") → true
+      Vérifie que l'heure de début est AVANT l'heure de fin.
+      08:00 < 10:00 → true (valide)
+      10:00 < 08:00 → false (invalide, fin avant début)
+
+  (c) seChevauchent(d1, f1, d2, f2) → true/false  ★ LA FORMULE CLÉ
+      Deux créneaux [d1,f1] et [d2,f2] se chevauchent SI ET SEULEMENT SI :
+
+              d1 < f2   ET   d2 < f1
+
+  EXEMPLES À CONNAÎTRE PAR CŒUR :
+
+    Séance A : 08:00 → 10:00   (480 → 600 minutes)
+    Séance B : 09:00 → 11:00   (540 → 660 minutes)
+    Test : 480 < 660 (vrai) ET 540 < 600 (vrai) → CONFLIT ✓
+
+    Séance A : 08:00 → 10:00
+    Séance C : 10:00 → 12:00   (créneaux consécutifs)
+    Test : 480 < 720 (vrai) ET 600 < 600 (FAUX) → PAS de conflit ✓
+    (deux séances qui se suivent ne se chevauchent pas)
+
+    Séance A : 08:00 → 09:00
+    Séance D : 11:00 → 12:00   (séparés)
+    Test : 480 < 720 (vrai) ET 660 < 540 (FAUX) → PAS de conflit ✓
+
+  POURQUOI final + constructeur privé ?
+  → C'est une classe utilitaire. On ne crée jamais d'objet HeureUtil.
+    On appelle directement HeureUtil.seChevauchent(...) (méthodes static).
+
+────────────────────────────────────────────────────────────────────────────────
+  5.5  EmploiDuTempsException.java  (EXCEPTION MÉTIER)
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : exception personnalisée qui transporte un MESSAGE et un CODE HTTP.
+
+  EXEMPLE D'USAGE :
+    throw new EmploiDuTempsException("Conflit horaire", 409);
+    throw new EmploiDuTempsException("Cours introuvable", 400);
+    throw new EmploiDuTempsException("Séance introuvable", 404);
+
+  POURQUOI CETTE EXCEPTION ?
+  → Pour que le service décide du code HTTP (400, 404, 409) et que le Resource
+    le lise simplement via ex.getStatutHttp(). Découplage propre.
+
+  ANNOTATION CLÉ : @ApplicationException(rollback = true)
+  → Sans elle, WildFly emballerait mon exception dans une EJBException
+    et je perdrais le code HTTP.
+  → rollback = true : annule automatiquement la transaction en base si erreur.
+
+  C'EST LA SOLUTION À UN BUG QU'ON A EU :
+  « Au début, un conflit 409 retournait une erreur 500 car l'EJB enveloppait
+   mon exception. En ajoutant @ApplicationException, l'exception se propage
+   correctement et le 409 est bien retourné. »
+
+────────────────────────────────────────────────────────────────────────────────
+  5.6  SeanceRepository.java  (ACCÈS BASE + DÉTECTION CONFLIT) ★
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : toutes les opérations sur la table "seances" (emploi_db).
+
+  MÉTHODES :
+    findAll()      → SELECT toutes les séances (triées par jour, heure)
+    findById(id)   → SELECT une séance par id
+    findByJour(j)  → SELECT séances d'un jour donné
+    create(seance) → INSERT une nouvelle séance
+    delete(seance) → DELETE une séance
+    existeConflit(...) → ★ LA MÉTHODE LA PLUS IMPORTANTE
+
+  COMMENT FONCTIONNE existeConflit() :
+    1. Requête JPQL : récupère toutes les séances de la MÊME salle (localId)
+       le MÊME jour (jour).
+    2. Pour chaque séance trouvée, appelle HeureUtil.seChevauchent()
+       pour comparer les horaires.
+    3. Si au moins une se chevauche → retourne true (conflit).
+
+  Le paramètre excludeId : permet d'exclure une séance lors d'une modification
+  (pour ne pas qu'elle se détecte elle-même comme conflit). null en création.
+
+  POINT À EXPLIQUER :
+  « Je ne fais pas la comparaison d'horaires directement en SQL parce que les
+   heures sont stockées en texte 'HH:mm'. Je récupère les séances candidates
+   (même salle, même jour) puis je compare les heures en Java avec HeureUtil. »
+
+────────────────────────────────────────────────────────────────────────────────
+  5.7  CatalogueClient.java  (APPEL HTTP VERS CATALOGUE) ★
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : appeler l'API REST du service-catalogue pour vérifier qu'un cours existe.
+
+  TECHNOLOGIE : java.net.http.HttpClient (client HTTP natif de Java 11+).
+
+  ANNOTATION : @ApplicationScoped
+  → Une seule instance partagée pour toute l'application (le HttpClient est
+    réutilisé, c'est plus efficace).
+
+  @PostConstruct init() :
+  → Méthode appelée automatiquement au démarrage. Elle crée le HttpClient et
+    lit l'URL du catalogue depuis la variable d'environnement CATALOGUE_BASE_URL
+    (valeur par défaut : http://service-catalogue:8080).
+
+  MÉTHODE PRINCIPALE : verifierCoursExiste(coursId)
+    1. Construit l'URL : http://service-catalogue:8080/api/cours/{coursId}
+    2. Envoie une requête GET
+    3. Si réponse 404 → le cours n'existe pas → lève exception HTTP 400
+    4. Si réponse 200 → parse le JSON et retourne un CoursDTO
+    5. Si erreur réseau → lève exception HTTP 500
+
+  POURQUOI UN DTO (CoursDTO) ?
+  « Mon service ne peut pas importer la classe Cours du service-catalogue :
+   ce sont deux projets Maven séparés, sans dépendance directe (découplage).
+   Je crée donc un CoursDTO local que je remplis en lisant le JSON reçu. »
+
+────────────────────────────────────────────────────────────────────────────────
+  5.8  LocalClient.java  (APPEL HTTP VERS LOCAUX) ★
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : appeler l'API REST du service-locaux pour 3 choses :
+    1. verifierSalleDisponible(localId) → la salle est-elle libre ?
+    2. reserverSalle(localId)           → passer la salle à OCCUPE
+    3. libererSalle(localId)            → passer la salle à DISPONIBLE
+
+  URL : lue depuis LOCAUX_BASE_URL (défaut http://service-locaux:8080)
+
+  verifierSalleDisponible(localId) :
+    → GET http://service-locaux:8080/api/locaux/disponibles
+    → récupère la liste des salles DISPONIBLES
+    → vérifie que localId est dans cette liste
+    → si absent → exception HTTP 400 "salle non disponible"
+
+  reserverSalle / libererSalle utilisent PATCH :
+    → PATCH http://service-locaux:8080/api/locaux/{id}/disponibilite?valeur=OCCUPE
+    → PATCH http://service-locaux:8080/api/locaux/{id}/disponibilite?valeur=DISPONIBLE
+
+  POURQUOI PATCH ET PAS PUT ?
+  « PATCH modifie UN SEUL attribut (la disponibilité). PUT remplacerait toute
+   la salle (il faudrait renvoyer nom, capacité, etc.). PATCH est la bonne
+   sémantique REST pour changer juste un état. »
+
+────────────────────────────────────────────────────────────────────────────────
+  5.9  EmploiDuTempsService.java  (ORCHESTRATEUR) ★★★ LE PLUS IMPORTANT
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : le cerveau de mon service. Contient la logique de planification.
+
+  MÉTHODES :
+    listerToutes()       → toutes les séances
+    trouverParId(id)     → une séance
+    listerParJour(jour)  → séances d'un jour
+    planifierSeance(s)   → ★★★ LE FLUX EN 5 ÉTAPES (voir section 6)
+    supprimerSeance(id)  → supprime + libère salle (voir section 7)
+    validerSeance(s)     → validation des champs obligatoires
+
+  INJECTIONS (@Inject) :
+    SeanceRepository → accès base
+    CatalogueClient  → appel catalogue
+    LocalClient      → appel locaux
+
+  C'est ICI que se trouve le flux de planification détaillé en section 6.
+  C'EST LA PARTIE QUE LE PROF VA LE PLUS REGARDER. À MAÎTRISER À 100%.
+
+────────────────────────────────────────────────────────────────────────────────
+  5.10  EmploiDuTempsResource.java  (ENDPOINTS REST)
+────────────────────────────────────────────────────────────────────────────────
+
+  RÔLE : la porte d'entrée HTTP. Reçoit les requêtes, appelle le service,
+         construit les réponses HTTP.
+
+  ANNOTATIONS :
+    @Path("/emploi-du-temps")  → URL de base
+    @Produces(JSON)            → réponses en JSON
+    @Consumes(JSON)            → reçoit du JSON
+    @RequestScoped             → une instance par requête HTTP
+
+  ENDPOINTS (méthodes) :
+    @GET                listerToutes()  → GET /api/emploi-du-temps
+    @GET @Path("/{id}")  trouverParId() → GET /api/emploi-du-temps/{id}
+    @GET @Path("/jour/{jour}") listerParJour() → GET .../jour/LUNDI
+    @POST               planifier()     → POST /api/emploi-du-temps
+    @DELETE @Path("/{id}") supprimer()  → DELETE /api/emploi-du-temps/{id}
+
+  GESTION DES ERREURS :
+    catch (EmploiDuTempsException ex) → utilise ex.getStatutHttp() pour le code
+    catch (Exception ex)              → HTTP 500
+
+================================================================================
+  6. LE FLUX DE PLANIFICATION EXPLIQUÉ PAS À PAS ★★★ (LE POINT CENTRAL)
+================================================================================
+
+  C'est LA partie que je dois savoir expliquer parfaitement.
+  Quand un client envoie : POST /api/emploi-du-temps avec ce JSON :
+
+    {
+      "coursId": 1,
+      "localId": 3,
+      "jour": "LUNDI",
+      "heureDebut": "08:00",
+      "heureFin": "10:00",
+      "semestre": "S2-2026",
+      "type": "COURS_MAGISTRAL"
+    }
+
+  Voici ce qui se passe dans planifierSeance() :
+
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 1 — VALIDATION LOCALE                                            │
+  │ Méthode : validerSeance(seance)                                        │
+  │ Vérifie : coursId, localId, jour, heures, semestre, type non vides     │
+  │           ET heureDebut < heureFin (via HeureUtil)                     │
+  │ Si invalide → EmploiDuTempsException(400) → HTTP 400 Bad Request       │
+  └────────────────────────────────┬───────────────────────────────────────┘
+                                   ↓
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 2 — VÉRIFIER QUE LE COURS EXISTE                                 │
+  │ catalogueClient.verifierCoursExiste(coursId)                           │
+  │ → HTTP GET http://service-catalogue:8080/api/cours/1                   │
+  │ → Si le cours n'existe pas (404) → HTTP 400 "Le cours n'existe pas"    │
+  └────────────────────────────────┬───────────────────────────────────────┘
+                                   ↓
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 3 — VÉRIFIER QUE LA SALLE EST DISPONIBLE                         │
+  │ localClient.verifierSalleDisponible(localId)                           │
+  │ → HTTP GET http://service-locaux:8080/api/locaux/disponibles           │
+  │ → Cherche localId dans la liste des salles libres                     │
+  │ → Si absent → HTTP 400 "La salle n'est pas disponible"                │
+  └────────────────────────────────┬───────────────────────────────────────┘
+                                   ↓
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 4 — DÉTECTER UN CONFLIT HORAIRE                                  │
+  │ seanceRepository.existeConflit(localId, jour, "08:00", "10:00", null)  │
+  │ → Cherche en base les séances : même salle + même jour                │
+  │ → HeureUtil.seChevauchent() pour chaque séance trouvée                │
+  │ → Si chevauchement → HTTP 409 Conflict "salle déjà occupée"           │
+  └────────────────────────────────┬───────────────────────────────────────┘
+                                   ↓
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 5 — RÉSERVER LA SALLE                                            │
+  │ localClient.reserverSalle(localId)                                     │
+  │ → HTTP PATCH .../api/locaux/3/disponibilite?valeur=OCCUPE              │
+  │ → La salle passe de DISPONIBLE à OCCUPE                                │
+  └────────────────────────────────┬───────────────────────────────────────┘
+                                   ↓
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 6 — ENREGISTRER LA SÉANCE                                        │
+  │ seanceRepository.create(seance)                                        │
+  │ → INSERT INTO seances ...                                              │
+  │ → HTTP 201 Created avec la séance créée (incluant son id)             │
+  │                                                                        │
+  │ SÉCURITÉ : si l'INSERT échoue, je libère la salle (rollback manuel)    │
+  │ pour ne pas laisser une salle OCCUPE sans séance associée.            │
+  └────────────────────────────────────────────────────────────────────────┘
+
+  RÉSUMÉ ORAL DU FLUX (à dire d'une traite) :
+  « Je valide les données, je vérifie que le cours existe en appelant catalogue,
+   je vérifie que la salle est libre en appelant locaux, je détecte les conflits
+   horaires dans ma base, je réserve la salle en PATCH, puis j'enregistre la
+   séance. Si l'enregistrement échoue, je libère la salle pour rester cohérent. »
+
+================================================================================
+  7. LE FLUX DE SUPPRESSION EXPLIQUÉ PAS À PAS
+================================================================================
+
+  Quand un client envoie : DELETE /api/emploi-du-temps/{id}
+  Voici supprimerSeance(id) :
+
+    ÉTAPE 1 : Chercher la séance en base
+              → Si introuvable → HTTP 404 "Séance introuvable"
+
+    ÉTAPE 2 : Récupérer le localId de la séance trouvée
+
+    ÉTAPE 3 : Libérer la salle
+              → PATCH .../api/locaux/{localId}/disponibilite?valeur=DISPONIBLE
+              → La salle redevient réservable
+
+    ÉTAPE 4 : Supprimer la séance de la base
+              → DELETE FROM seances WHERE id = ?
+
+    ÉTAPE 5 : → HTTP 204 No Content (succès, corps vide)
+
+  POURQUOI LIBÉRER LA SALLE AVANT DE SUPPRIMER ?
+  « Si je supprimais d'abord la séance et que le PATCH échouait, la salle
+   resterait OCCUPE sans séance — état incohérent. En libérant d'abord, si
+   ça échoue, la séance existe encore et on peut réessayer. »
+
+================================================================================
+  8. MES ENDPOINTS REST (TABLEAU)
+================================================================================
+
+  ┌────────┬────────────────────────────────┬─────────────────────────────────┐
+  │ Verbe  │ URL                            │ Description / Codes retour      │
+  ├────────┼────────────────────────────────┼─────────────────────────────────┤
+  │ GET    │ /api/emploi-du-temps           │ Liste toutes les séances → 200  │
+  │ GET    │ /api/emploi-du-temps/{id}      │ Une séance par id → 200 ou 404  │
+  │ GET    │ /api/emploi-du-temps/jour/LUNDI│ Séances d'un jour → 200 ou 400  │
+  │ POST   │ /api/emploi-du-temps           │ Planifier → 201, 400, 409, 500  │
+  │ DELETE │ /api/emploi-du-temps/{id}      │ Supprimer + libérer → 204 / 404 │
+  └────────┴────────────────────────────────┴─────────────────────────────────┘
+
+  CODES HTTP QUE MON SERVICE RETOURNE :
+    201 → séance créée avec succès
+    204 → séance supprimée avec succès
+    400 → données invalides / cours absent / salle indisponible
+    404 → séance ou jour introuvable
+    409 → conflit horaire (même salle, même créneau) ★ spécial à mon service
+    500 → erreur technique (réseau, base de données)
+
+================================================================================
+  9. COMMENT MON SERVICE COMMUNIQUE AVEC LES 2 AUTRES
+================================================================================
+
+  MON SERVICE → SERVICE-CATALOGUE (via CatalogueClient) :
+    GET http://service-catalogue:8080/api/cours/{id}
+    But : vérifier qu'un cours existe avant de planifier.
+
+  MON SERVICE → SERVICE-LOCAUX (via LocalClient) :
+    GET   http://service-locaux:8080/api/locaux/disponibles
+          But : vérifier que la salle est libre.
+    PATCH http://service-locaux:8080/api/locaux/{id}/disponibilite?valeur=OCCUPE
+          But : réserver la salle.
+    PATCH http://service-locaux:8080/api/locaux/{id}/disponibilite?valeur=DISPONIBLE
+          But : libérer la salle.
+
+  POURQUOI "service-catalogue" ET PAS "localhost" DANS L'URL ?
+  « Dans Docker Compose, chaque conteneur a un nom DNS = son nom de service.
+   Sur le réseau planification-net, "service-catalogue" est résolu
+   automatiquement vers la bonne adresse IP. Je n'utilise pas localhost car
+   localhost désignerait MON propre conteneur, pas celui du catalogue. »
+
+  POURQUOI LE PORT 8080 ET PAS 8081/8082 ?
+  « 8080 est le port INTERNE de WildFly dans chaque conteneur. Les ports
+   8081/8082/8083 sont seulement les ports exposés sur la machine hôte
+   (mon PC). Entre conteneurs, on utilise toujours 8080. »
+
+  CES URLS SONT CONFIGURÉES OÙ ?
+  → Dans compose.yaml via les variables d'environnement :
+       CATALOGUE_BASE_URL = http://service-catalogue:8080
+       LOCAUX_BASE_URL    = http://service-locaux:8080
+  → Lues en Java avec System.getenv() dans CatalogueClient et LocalClient.
+
+================================================================================
+  10. MA BASE DE DONNÉES (table seances)
+================================================================================
+
+  Base : emploi_db (conteneur emploi-db, MySQL 8)
+  Unité de persistance JPA : emploiPU (dans persistence.xml)
+
+  CREATE TABLE seances (
+    id          BIGINT NOT NULL AUTO_INCREMENT,
+    cours_id    BIGINT NOT NULL,      -- id du cours (pas de FK SQL)
+    local_id    BIGINT NOT NULL,      -- id du local (pas de FK SQL)
+    jour        VARCHAR(15) NOT NULL, -- LUNDI, MARDI...
+    heure_debut VARCHAR(5) NOT NULL,  -- "08:00"
+    heure_fin   VARCHAR(5) NOT NULL,  -- "10:00"
+    semestre    VARCHAR(20) NOT NULL,
+    type        VARCHAR(20) NOT NULL, -- COURS_MAGISTRAL, TP, TD
+    PRIMARY KEY (id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+  POINT CLÉ : pas de clés étrangères vers cours ou locaux.
+  → Elles sont dans d'autres bases (autres conteneurs MySQL).
+  → L'intégrité est vérifiée par mes appels HTTP (CatalogueClient, LocalClient).
+
+================================================================================
+  11. DÉMONSTRATION : CE QUE JE MONTRE AU PROF
+================================================================================
+
+  SCÉNARIO DE DÉMO POUR MA PARTIE :
+
+  1. Montrer la liste vide au départ :
+     GET http://localhost:8083/api/emploi-du-temps
+     → [] (aucune séance)
+
+  2. Planifier une séance (succès) :
+     POST http://localhost:8083/api/emploi-du-temps
+     Body : {"coursId":1,"localId":1,"jour":"LUNDI",
+             "heureDebut":"08:00","heureFin":"10:00",
+             "semestre":"S2-2026","type":"COURS_MAGISTRAL"}
+     → HTTP 201 + la séance avec son id
+
+  3. Vérifier que la salle est devenue OCCUPE :
+     GET http://localhost:8082/api/locaux/1
+     → "disponibilite": "OCCUPE"  (mon service l'a réservée !)
+
+  4. Provoquer un CONFLIT (même salle, créneau qui chevauche) :
+     POST http://localhost:8083/api/emploi-du-temps
+     Body : {"coursId":2,"localId":1,"jour":"LUNDI",
+             "heureDebut":"09:00","heureFin":"11:00", ...}
+     → HTTP 409 Conflict ! (la salle 1 est déjà prise de 08:00 à 10:00)
+     → C'est mon algorithme HeureUtil qui a détecté le chevauchement.
+
+  5. Lister les séances du lundi :
+     GET http://localhost:8083/api/emploi-du-temps/jour/LUNDI
+     → la séance planifiée
+
+  6. Supprimer la séance :
+     DELETE http://localhost:8083/api/emploi-du-temps/{id}
+     → HTTP 204
+
+  7. Vérifier que la salle est libérée :
+     GET http://localhost:8082/api/locaux/1
+     → "disponibilite": "DISPONIBLE"  (mon service l'a libérée !)
+
+================================================================================
+  12. QUESTIONS QUE LE PROF VA ME POSER (avec réponses)
+================================================================================
+
+  Q : Pourquoi ton service est-il l'orchestrateur ?
+  R : Parce qu'il coordonne les deux autres. Pour planifier une séance, il a
+      besoin de savoir si le cours existe (catalogue) et si la salle est libre
+      (locaux). Il appelle ces services et prend la décision finale.
+
+  Q : Comment détectes-tu un conflit horaire ?
+  R : Dans SeanceRepository.existeConflit(), je récupère les séances de la même
+      salle le même jour, puis avec HeureUtil.seChevauchent() j'applique la
+      formule d1 < f2 ET d2 < f1. Si c'est vrai, il y a conflit → HTTP 409.
+
+  Q : Pourquoi coursId et localId ne sont pas des clés étrangères ?
+  R : Parce que les cours et salles sont dans d'autres bases de données,
+      d'autres conteneurs. On ne peut pas faire de FK entre bases séparées.
+      C'est le principe "database per service". Je vérifie par HTTP.
+
+  Q : Que se passe-t-il si le service-catalogue est éteint ?
+  R : Mon CatalogueClient ne reçoit pas de réponse, le timeout se déclenche
+      (15 secondes), et je lève une exception HTTP 500 "Impossible de contacter
+      le service catalogue". La planification échoue proprement.
+
+  Q : Pourquoi utilises-tu PATCH pour la disponibilité ?
+  R : Parce que je ne modifie qu'un seul attribut (disponibilite). PUT
+      remplacerait toute la salle. PATCH est la bonne sémantique REST.
+
+  Q : Que fais-tu si la séance ne s'enregistre pas après avoir réservé la salle ?
+  R : Je libère la salle (je la repasse à DISPONIBLE) pour ne pas la laisser
+      bloquée. C'est une compensation manuelle, un mini-rollback distribué.
+
+  Q : Comment ton service trouve-t-il l'adresse du service-catalogue ?
+  R : Via la variable d'environnement CATALOGUE_BASE_URL définie dans
+      compose.yaml = http://service-catalogue:8080. Docker résout le nom
+      "service-catalogue" en IP grâce au DNS interne du réseau Docker.
+
+  Q : C'est quoi @ApplicationException ?
+  R : Une annotation EJB sur mon exception. Sans elle, WildFly emballerait mon
+      exception dans EJBException et je perdrais le code HTTP. Avec elle,
+      l'exception se propage telle quelle et la transaction est annulée.
+
+  Q : Quelle est la différence entre @ApplicationScoped et @RequestScoped ?
+  R : @ApplicationScoped (mes clients HTTP) = une seule instance pour toute
+      l'application. @RequestScoped (mon Resource) = une instance par requête.
+      Je mets mes clients en ApplicationScoped car le HttpClient est réutilisable.
+
+  Q : C'est quoi un DTO et pourquoi en utiliser ?
+  R : Data Transfer Object. C'est CoursDTO et LocalDTO. Comme mon service ne
+      peut pas importer les classes Cours/Local des autres services (projets
+      séparés), je crée des DTO locaux que je remplis en parsant le JSON reçu.
+
+  Q : Quel est le code HTTP spécial à ton service ?
+  R : Le 409 Conflict. C'est celui qui signale un conflit horaire. Les autres
+      services (catalogue, locaux) ne l'utilisent pas, car eux ne gèrent pas
+      de planification.
+
+================================================================================
+  13. PHRASES CLÉS À RETENIR PAR CŒUR
+================================================================================
+
+  • « Mon service est l'orchestrateur : le seul qui appelle les deux autres. »
+
+  • « Le flux de planification a 5 étapes : valider, vérifier le cours,
+     vérifier la salle, détecter les conflits, réserver et enregistrer. »
+
+  • « La formule de détection de conflit est : d1 < f2 ET d2 < f1. »
+
+  • « Je communique par HTTP REST avec mes clients CatalogueClient et
+     LocalClient, en utilisant les noms DNS Docker. »
+
+  • « coursId et localId ne sont pas des clés étrangères SQL : je vérifie
+     l'intégrité par appel HTTP, c'est le principe database per service. »
+
+  • « Le code 409 Conflict est la signature de mon service : il indique
+     qu'une salle est déjà occupée sur ce créneau. »
+
+================================================================================
+  14. SCHÉMA À DESSINER AU TABLEAU (simple)
+================================================================================
+
+        Client (Postman)
+            │ POST /api/emploi-du-temps
+            ↓
+    ┌──────────────────────────┐
+    │  EMPLOI-DU-TEMPS (moi)   │
+    │                          │
+    │  1. valider              │
+    │  2. vérifier cours ──────┼───GET───▶ [CATALOGUE]
+    │  3. vérifier salle ──────┼───GET───▶ [LOCAUX]
+    │  4. détecter conflit     │
+    │  5. réserver salle ──────┼──PATCH──▶ [LOCAUX]
+    │  6. enregistrer ─────────┼──▶ [emploi_db]
+    └──────────────────────────┘
+            │
+            ↓ HTTP 201 (ou 400 / 409)
+        Client
+
+================================================================================
+  FIN DE MA FICHE PERSONNELLE — AYOUB — service-emploi-du-temps
+================================================================================

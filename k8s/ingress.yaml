@@ -1,0 +1,40 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: planification-ingress
+  namespace: planification
+  labels:
+    app.kubernetes.io/part-of: ump-planification
+  annotations:
+    # K3s utilise Traefik par défaut
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: planification.local
+      http:
+        paths:
+          # Catalogue — CoursResource @Path("/cours")
+          - path: /api/cours
+            pathType: Prefix
+            backend:
+              service:
+                name: service-catalogue
+                port:
+                  number: 8080
+          # Locaux — LocalResource @Path("/locaux")
+          - path: /api/locaux
+            pathType: Prefix
+            backend:
+              service:
+                name: service-locaux
+                port:
+                  number: 8080
+          # Emploi du temps — EmploiDuTempsResource @Path("/emploi-du-temps")
+          - path: /api/emploi-du-temps
+            pathType: Prefix
+            backend:
+              service:
+                name: service-emploi-du-temps
+                port:
+                  number: 8080

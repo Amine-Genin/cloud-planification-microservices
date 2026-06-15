@@ -1,0 +1,41 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: planification
+
+resources:
+  - namespace.yaml
+  # Secrets (mots de passe MySQL)
+  - secrets/catalogue-db-secret.yaml
+  - secrets/locaux-db-secret.yaml
+  - secrets/emploi-db-secret.yaml
+  # ConfigMaps applicatifs
+  - configmaps/catalogue-app-configmap.yaml
+  - configmaps/locaux-app-configmap.yaml
+  - configmaps/emploi-app-configmap.yaml
+  # Bases MySQL (StatefulSets + Services headless)
+  - databases/catalogue-db-service.yaml
+  - databases/catalogue-db-statefulset.yaml
+  - databases/locaux-db-service.yaml
+  - databases/locaux-db-statefulset.yaml
+  - databases/emploi-db-service.yaml
+  - databases/emploi-db-statefulset.yaml
+  # Applications WildFly (Deployments + Services ClusterIP)
+  - apps/service-catalogue-service.yaml
+  - apps/service-catalogue-deployment.yaml
+  - apps/service-locaux-service.yaml
+  - apps/service-locaux-deployment.yaml
+  - apps/service-emploi-du-temps-service.yaml
+  - apps/service-emploi-du-temps-deployment.yaml
+  # Routage HTTP
+  - ingress.yaml
+  - nodeport-services.yaml
+
+# init.sql montés dans les conteneurs MySQL (identique Docker Compose)
+configMapGenerator:
+  - name: catalogue-db-init
+    files:
+      - init.sql=init-scripts/catalogue-init.sql
+  - name: locaux-db-init
+    files:
+      - init.sql=init-scripts/locaux-init.sql

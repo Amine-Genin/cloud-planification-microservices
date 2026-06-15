@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: catalogue-app-config
+  namespace: planification
+  labels:
+    app: service-catalogue
+data:
+  DATASOURCE_NAME: CatalogueDS
+  DB_HOST: catalogue-db
+  DB_PORT: "3306"
+  DB_NAME: catalogue_db
+  DB_USER: catalogue_user

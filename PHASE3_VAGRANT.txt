@@ -1,0 +1,200 @@
+================================================================================
+  PHASE 3 — VAGRANT (Virtualisation de la VM d'exécution)
+  Projet 2 — Planification & Logistique — UMP Oujda
+  Master M2I — Cloud Computing — 2025/2026
+================================================================================
+
+  OBJECTIF DE LA PHASE 3
+  ----------------------
+  Exécuter la même stack Docker Compose (Phase 2) à l'intérieur d'une VM
+  Ubuntu provisionnée automatiquement par Vagrant, au lieu de Docker Desktop
+  directement sur Windows.
+
+  Avantages pédagogiques :
+    • Séparation hôte / environnement d'exécution (IaaS léger)
+    • Reproductibilité (même VM sur toute machine avec VirtualBox)
+    • Démonstration Cloud : "l'app tourne dans une VM, pas sur l'hôte"
+    • Préparation logique vers Phase 4 (Kubernetes dans une VM ou cluster)
+
+================================================================================
+  FICHIERS CRÉÉS POUR LA PHASE 3
+================================================================================
+
+  projet2-planification/
+  ├── Vagrantfile                 ← Définition VM (Ubuntu 22.04, ports, RAM)
+  ├── PHASE3_VAGRANT.txt          ← Ce guide
+  └── vagrant/
+      ├── provision.sh            ← Installe Docker + outils (1ère fois)
+      ├── start-app.sh            ← Copie projet + docker compose up (chaque up)
+      └── stop-app.sh             ← Arrête les conteneurs
+
+================================================================================
+  PRÉREQUIS SUR LA MACHINE HÔTE (Windows)
+================================================================================
+
+  1. VirtualBox 7.x
+     https://www.virtualbox.org/wiki/Downloads
+
+  2. Vagrant 2.4+
+     https://developer.hashicorp.com/vagrant/install
+
+  3. Virtualisation activée dans le BIOS (Intel VT-x / AMD-V)
+
+  4. Au moins 8 Go RAM sur l'hôte (la VM utilise 4 Go)
+
+  Vérification :
+    vagrant --version
+    VBoxManage --version
+
+================================================================================
+  DÉMARRAGE COMPLET (depuis le dossier du projet)
+================================================================================
+
+  ÉTAPE 1 — Ouvrir un terminal dans projet2-planification/
+
+  ÉTAPE 2 — Lancer la VM (première fois : télécharge Ubuntu + installe Docker)
+  ────────────────────────────────────────────────────────────────────────────
+    vagrant up
+
+    Durée première exécution : 10 à 20 minutes
+    (téléchargement box Ubuntu + installation Docker + build des 3 images)
+
+  ÉTAPE 3 — Vérifier depuis Windows (navigateur ou PowerShell)
+  ─────────────────────────────────────────────────────────────
+    http://localhost:8081/api/cours
+    http://localhost:8082/api/locaux
+    http://localhost:8083/api/emploi-du-temps
+
+  ÉTAPE 4 — Tests d'intégration (dans la VM)
+  ───────────────────────────────────────────
+    vagrant ssh
+    cd /home/vagrant/projet2-planification
+    chmod +x test.sh
+    ./test.sh
+
+    Résultat attendu : 14 tests [PASS]
+
+================================================================================
+  COMMANDES VAGRANT UTILES
+================================================================================
+
+  vagrant up              Démarrer la VM + provisionner + lancer l'app
+  vagrant halt            Arrêter la VM (conteneurs s'arrêtent avec la VM)
+  vagrant destroy         Supprimer la VM complètement
+  vagrant reload          Redémarrer la VM (relance start-app.sh)
+  vagrant ssh             Se connecter en SSH à la VM
+  vagrant status          État de la VM
+  vagrant provision       Re-exécuter les scripts de provisionnement
+
+  Après modification du code Java :
+    vagrant reload
+    (ou vagrant ssh puis cd /home/vagrant/projet2-planification && docker compose up --build -d)
+
+  Arrêter uniquement les conteneurs (VM reste allumée) :
+    vagrant ssh -c "/vagrant/vagrant/stop-app.sh"
+
+  Relancer sans rebuild (plus rapide) :
+    vagrant ssh -c "COMPOSE_BUILD=0 /vagrant/vagrant/start-app.sh"
+
+================================================================================
+  ARCHITECTURE PHASE 3
+================================================================================
+
+  Machine hôte Windows
+  ├── VirtualBox
+  │   └── VM "ump-planification-phase3" (Ubuntu 22.04, 4 Go RAM, 2 CPU)
+  │       ├── Docker Engine + Compose v2
+  │       ├── /vagrant/  ← dossier synchronisé (lecture seule efficace)
+  │       ├── /home/vagrant/projet2-planification/  ← copie native pour Docker
+  │       └── 6 conteneurs Docker (identiques Phase 2) :
+  │           service-catalogue:8081, catalogue-db
+  │           service-locaux:8082, locaux-db
+  │           service-emploi-du-temps:8083, emploi-db
+  │           Réseau : planification-net
+  └── Ports redirigés : 8081, 8082, 8083 → localhost Windows
+
+================================================================================
+  DÉTAIL DU Vagrantfile
+================================================================================
+
+  Box          : ubuntu/jammy64 (Ubuntu 22.04 LTS)
+  Hostname     : planification-vm
+  RAM          : 4096 Mo
+  CPU          : 2
+  Ports        : 8081, 8082, 8083 (guest → host 127.0.0.1)
+  Synced folder: . → /vagrant
+
+  Provision 1 (once)  : vagrant/provision.sh   → installe Docker
+  Provision 2 (always): vagrant/start-app.sh   → sync + compose up
+
+================================================================================
+  POURQUOI COPIER /vagrant → /home/vagrant/projet2-planification ?
+================================================================================
+
+  VirtualBox monte /vagrant en vboxsf (système de fichiers partagé Windows).
+  Docker refuse les bind mounts et volumes sur vboxsf → erreurs au build/run.
+
+  Solution : rsync du projet vers un chemin ext4 natif dans la VM, puis
+  docker compose depuis ce chemin. C'est une pratique standard Vagrant+Docker.
+
+================================================================================
+  DÉMO / SOUTENANCE AVEC VAGRANT
+================================================================================
+
+  Script oral (3 minutes) :
+
+  1. « En Phase 2, nous utilisions Docker Compose directement sur l'hôte.
+     En Phase 3, nous encapsulons tout dans une VM Ubuntu provisionnée par
+     Vagrant — c'est une couche IaaS légère. »
+
+  2. Montrer : vagrant up  (ou vagrant status si déjà lancé)
+
+  3. Montrer : vagrant ssh → docker compose ps  (6 conteneurs healthy)
+
+  4. Depuis Windows : http://localhost:8081/api/cours
+
+  5. Dans la VM : ./test.sh  (14 PASS)
+
+  6. Expliquer : « Les ports 8081-8083 sont forwardés de la VM vers Windows.
+     L'architecture microservices reste identique à la Phase 2. »
+
+================================================================================
+  DÉPANNAGE
+================================================================================
+
+  PROBLÈME : vagrant up échoue sur VirtualBox
+    → Vérifier que la virtualisation est activée dans le BIOS
+    → Désactiver Hyper-V si conflit (Windows) : optionalfeatures
+
+  PROBLÈME : ports 8081/8082/8083 déjà utilisés sur Windows
+    → Arrêter Docker Desktop local : docker compose down
+    → Ou modifier les host: dans Vagrantfile (ex: host: 18081)
+
+  PROBLÈME : docker compose build très long
+    → Normal au premier build (Maven + WildFly × 3)
+    → Builds suivants utilisent le cache Docker
+
+  PROBLÈME : conteneurs pas healthy après 3 min
+    → vagrant ssh
+    → cd /home/vagrant/projet2-planification
+    → docker compose logs service-catalogue
+    → Attendre encore 60-90 s (WildFly lent)
+
+  PROBLÈME : permission denied docker
+    → vagrant reload  (réapplique usermod docker group)
+    → Ou : vagrant ssh puis newgrp docker
+
+================================================================================
+  RELATION PHASE 2 → PHASE 3 → PHASE 4
+================================================================================
+
+  Phase 2 (actuelle)  : Docker Compose sur hôte → 6 conteneurs
+  Phase 3 (Vagrant)   : Docker Compose dans VM Ubuntu → même 6 conteneurs
+  Phase 4 (Kubernetes): Remplacer Compose par K8s/K3s manifests
+
+  Les services, ports, variables d'environnement et API REST restent IDENTIQUES.
+  Seule la couche d'orchestration change.
+
+================================================================================
+  FIN — PHASE 3 VAGRANT
+================================================================================
