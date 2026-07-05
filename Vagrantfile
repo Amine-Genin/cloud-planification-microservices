@@ -52,7 +52,7 @@ Vagrant.configure("2") do |config|
 
     master.vm.provider "virtualbox" do |vb|
       vb.name = "ump-planification-k3s-master"
-      vb.memory = 4096
+      vb.memory = 8192
       vb.cpus = 2
       # vb.gui = true   # décommenter pour voir l'écran VM si boot bloqué
       vb.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
@@ -66,7 +66,7 @@ Vagrant.configure("2") do |config|
     end
 
     master.vm.provider "libvirt" do |lv|
-      lv.memory = 4096
+      lv.memory = 8192
       lv.cpus = 2
     end
 
