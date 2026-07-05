@@ -8,7 +8,6 @@
   Dépôt GitHub : https://github.com/AyoubElKharraf/cloud-planification-microservices
   Dossier local : projet2-planification/
   Date          : juin 2026
-
 ================================================================================
   TABLE DES MATIÈRES
 ================================================================================
