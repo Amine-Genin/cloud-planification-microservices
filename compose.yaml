@@ -6,63 +6,85 @@
 # et définit les dépendances inter-services + le réseau partagé.
 #
 # Usage :
-#   docker compose up --build -d
-#   docker compose ps
-#   docker compose logs -f service-emploi-du-temps
+#   docker compose up --build -d    # Construit les images et démarre en arrière-plan
+#   docker compose ps                 # Affiche l'état des conteneurs
+#   docker compose logs -f service-emploi-du-temps   # Logs en temps réel
 #
 # Ports exposés sur l'hôte :
-#   8081 → service-catalogue   (/api/cours)
-#   8082 → service-locaux      (/api/locaux)
-#   8083 → service-emploi-du-temps (/api/emploi-du-temps)
+#   8081 → service-catalogue        (/api/cours)
+#   8082 → service-locaux           (/api/locaux)
+#   8083 → service-emploi-du-temps  (/api/emploi-du-temps)
 #
 # Réseau partagé : planification-net (résolution DNS par nom de service)
 # =============================================================================
 
-# Inclusion des fichiers Compose de chaque microservice (DB + app)
+# Directive Compose v2 : fusionne plusieurs fichiers YAML en un seul projet
 include:
+  # Stack catalogue : MySQL catalogue-db + WildFly service-catalogue (port 8081)
   - path: ./service-catalogue/compose.yaml
+  # Stack locaux : MySQL locaux-db + WildFly service-locaux (port 8082)
   - path: ./service-locaux/compose.yaml
+  # Stack emploi : MySQL emploi-db + WildFly service-emploi-du-temps (port 8083)
   - path: ./service-emploi-du-temps/compose.yaml
 
+# Bloc services : surcharge/complète les services importés ci-dessus
 services:
-  # --- Surcharges au niveau racine -------------------------------------------
-  # Les healthchecks et depends_on sont centralisés ici pour garantir
-  # que service-emploi-du-temps démarre après catalogue ET locaux.
 
+  # ---------------------------------------------------------------------------
+  # service-catalogue — surcharge du healthcheck défini dans le fichier enfant
+  # ---------------------------------------------------------------------------
   service-catalogue:
     healthcheck:
-      # Vérifie que l'API REST répond (WildFly + WAR déployé)
+      # Commande exécutée dans le conteneur pour tester la santé de l'API
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/cours"]
+      # Fréquence entre deux vérifications de santé
       interval: 15s
+      # Délai max avant d'abandonner une vérification
       timeout: 5s
+      # Nombre d'échecs consécutifs avant de marquer unhealthy
       retries: 3
-      start_period: 60s   # WildFly met ~60s à démarrer et déployer le WAR
+      # Période de grâce au démarrage (WildFly + déploiement WAR ~60s)
+      start_period: 60s
 
+  # ---------------------------------------------------------------------------
+  # service-locaux — surcharge du healthcheck défini dans le fichier enfant
+  # ---------------------------------------------------------------------------
   service-locaux:
     healthcheck:
+      # Vérifie que l'endpoint REST /api/locaux répond avec HTTP 2xx
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/locaux"]
       interval: 15s
       timeout: 5s
       retries: 3
       start_period: 60s
 
+  # ---------------------------------------------------------------------------
+  # service-emploi-du-temps — dépendances inter-services + healthcheck
+  # ---------------------------------------------------------------------------
   service-emploi-du-temps:
+    # Ordre de démarrage : attend que les services listés soient healthy
     depends_on:
+      # Attend que la base MySQL emploi-db accepte les connexions
       emploi-db:
         condition: service_healthy
+      # Attend que catalogue soit prêt (appels HTTP GET /api/cours)
       service-catalogue:
-        condition: service_healthy   # Appels HTTP vers /api/cours
+        condition: service_healthy
+      # Attend que locaux soit prêt (appels HTTP GET /api/locaux)
       service-locaux:
-        condition: service_healthy   # Appels HTTP vers /api/locaux
+        condition: service_healthy
     healthcheck:
+      # Vérifie que l'endpoint REST /api/emploi-du-temps répond
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/emploi-du-temps"]
       interval: 15s
       timeout: 5s
       retries: 3
       start_period: 60s
 
-# Réseau bridge commun — tous les conteneurs communiquent par nom DNS
+# Déclaration du réseau Docker partagé par tous les conteneurs du projet
 networks:
   planification-net:
+    # Nom explicite du réseau (identique dans les 3 compose enfants)
     name: planification-net
+    # Mode bridge : réseau isolé avec résolution DNS par nom de conteneur
     driver: bridge

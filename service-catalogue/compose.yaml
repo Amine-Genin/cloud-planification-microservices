@@ -9,57 +9,101 @@
 # Port hôte : 8081 → conteneur 8080 (WildFly)
 # =============================================================================
 
+# Déclaration des services Docker de cette stack
 services:
-  # --- Base de données MySQL -------------------------------------------------
+
+  # ---------------------------------------------------------------------------
+  # catalogue-db — Base de données MySQL du microservice catalogue
+  # ---------------------------------------------------------------------------
   catalogue-db:
+    # Image officielle MySQL version 8.0
     image: mysql:8.0
+    # Nom fixe du conteneur (utilisé comme hostname DNS : catalogue-db)
     container_name: catalogue-db
+    # Variables d'environnement lues par l'entrypoint officiel MySQL
     environment:
+      # Mot de passe du compte administrateur root
       MYSQL_ROOT_PASSWORD: root
+      # Base créée automatiquement au premier démarrage
       MYSQL_DATABASE: catalogue_db
+      # Utilisateur applicatif créé avec droits sur MYSQL_DATABASE
       MYSQL_USER: catalogue_user
+      # Mot de passe de l'utilisateur applicatif
       MYSQL_PASSWORD: catalogue_pass
+    # Montages de volumes dans le conteneur
     volumes:
-      - catalogue-data:/var/lib/mysql                          # Persistance des données
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql        # Schéma + données initiales
+      # Volume nommé : persiste les fichiers de données MySQL (/var/lib/mysql)
+      - catalogue-data:/var/lib/mysql
+      # Script SQL exécuté une seule fois à l'initialisation de la base
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    # Vérification que MySQL est prêt à accepter des connexions
     healthcheck:
+      # mysqladmin ping retourne 0 si le serveur répond
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      # Intervalle entre deux pings
       interval: 10s
+      # Timeout par tentative de ping
       timeout: 5s
+      # Nombre d'échecs avant statut unhealthy
       retries: 5
+      # Délai de grâce au premier démarrage (initialisation MySQL)
       start_period: 30s
+    # Réseau auquel ce conteneur est connecté
     networks:
       - planification-net
 
-  # --- Application WildFly ---------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # service-catalogue — Application WildFly (Jakarta EE / REST)
+  # ---------------------------------------------------------------------------
   service-catalogue:
-    build: .                    # Dockerfile multi-stage (Maven + WildFly)
+    # Construit l'image depuis le Dockerfile du répertoire courant (.)
+    build: .
+    # Nom fixe du conteneur (hostname DNS interne : service-catalogue)
     container_name: service-catalogue
+    # Mapping des ports hôte:conteneur
     ports:
-      - "8081:8080"               # API accessible sur http://localhost:8081/api/cours
+      # Port 8081 sur la machine hôte → port 8080 WildFly dans le conteneur
+      - "8081:8080"
+    # Variables injectées dans le conteneur (lues par docker/entrypoint.sh)
     environment:
+      # Nom JNDI de la datasource WildFly à configurer au démarrage
       DATASOURCE_NAME: CatalogueDS
-      DB_HOST: catalogue-db       # Nom DNS interne Docker
+      # Hostname MySQL (nom du conteneur catalogue-db sur le réseau Docker)
+      DB_HOST: catalogue-db
+      # Port TCP MySQL standard
       DB_PORT: "3306"
+      # Nom de la base de données JDBC
       DB_NAME: catalogue_db
+      # Utilisateur JDBC (doit correspondre à MYSQL_USER)
       DB_USER: catalogue_user
+      # Mot de passe JDBC (doit correspondre à MYSQL_PASSWORD)
       DB_PASSWORD: catalogue_pass
+    # Dépendances de démarrage vis-à-vis d'autres services
     depends_on:
       catalogue-db:
-        condition: service_healthy   # Attend que MySQL soit prêt
+        # Ne démarre WildFly que lorsque MySQL est healthy
+        condition: service_healthy
+    # Vérification que l'API REST est opérationnelle
     healthcheck:
+      # curl -f échoue si HTTP >= 400 (WildFly + WAR déployé)
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/cours"]
       interval: 15s
       timeout: 5s
       retries: 3
+      # WildFly met ~60s à démarrer et déployer le WAR
       start_period: 60s
     networks:
       - planification-net
 
+# Volumes nommés persistants (survivent à docker compose down)
 volumes:
-  catalogue-data:                 # Volume nommé pour persister la base MySQL
+  # Stocke les données MySQL de catalogue-db entre les redémarrages
+  catalogue-data:
 
+# Réseau Docker partagé avec les autres microservices
 networks:
   planification-net:
-    name: planification-net       # Réseau partagé avec les autres microservices
+    # Nom explicite identique dans tous les fichiers compose du projet
+    name: planification-net
+    # Driver bridge : communication inter-conteneurs par nom DNS
     driver: bridge

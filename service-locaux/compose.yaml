@@ -9,20 +9,34 @@
 # Port hôte : 8082 → conteneur 8080 (WildFly)
 # =============================================================================
 
+# Déclaration des services Docker de cette stack
 services:
-  # --- Base de données MySQL -------------------------------------------------
+
+  # ---------------------------------------------------------------------------
+  # locaux-db — Base de données MySQL du microservice locaux
+  # ---------------------------------------------------------------------------
   locaux-db:
+    # Image officielle MySQL version 8.0
     image: mysql:8.0
+    # Nom fixe du conteneur (hostname DNS interne : locaux-db)
     container_name: locaux-db
+    # Variables d'environnement pour l'initialisation automatique MySQL
     environment:
+      # Mot de passe administrateur root MySQL
       MYSQL_ROOT_PASSWORD: root
+      # Base de données créée au premier démarrage
       MYSQL_DATABASE: locaux_db
+      # Compte applicatif avec accès à locaux_db
       MYSQL_USER: locaux_user
+      # Mot de passe du compte applicatif
       MYSQL_PASSWORD: locaux_pass
     volumes:
+      # Persistance des données MySQL (tables, index, etc.)
       - locaux-data:/var/lib/mysql
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql        # Schéma + données initiales
+      # Script SQL : schéma + données initiales (salles, bâtiments)
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
+      # Vérifie que le daemon MySQL répond aux connexions
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
       interval: 10s
       timeout: 5s
@@ -31,23 +45,35 @@ services:
     networks:
       - planification-net
 
-  # --- Application WildFly ---------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # service-locaux — Application WildFly (Jakarta EE / REST)
+  # ---------------------------------------------------------------------------
   service-locaux:
+    # Build multi-stage Maven + WildFly depuis le Dockerfile local
     build: .
+    # Nom fixe du conteneur (hostname DNS : service-locaux)
     container_name: service-locaux
     ports:
-      - "8082:8080"               # API accessible sur http://localhost:8082/api/locaux
+      # Expose l'API sur http://localhost:8082/api/locaux
+      - "8082:8080"
     environment:
+      # Nom de la datasource WildFly (LocauxDS)
       DATASOURCE_NAME: LocauxDS
+      # Hostname du conteneur MySQL sur le réseau Docker
       DB_HOST: locaux-db
+      # Port MySQL
       DB_PORT: "3306"
+      # Nom de la base JDBC
       DB_NAME: locaux_db
+      # Identifiants JDBC (cohérents avec MYSQL_USER / MYSQL_PASSWORD)
       DB_USER: locaux_user
       DB_PASSWORD: locaux_pass
     depends_on:
       locaux-db:
+        # Attend que MySQL soit healthy avant de lancer WildFly
         condition: service_healthy
     healthcheck:
+      # Teste l'endpoint REST principal du microservice
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/locaux"]
       interval: 15s
       timeout: 5s
@@ -56,10 +82,14 @@ services:
     networks:
       - planification-net
 
+# Volumes nommés pour la persistance
 volumes:
+  # Données MySQL de locaux-db conservées après arrêt des conteneurs
   locaux-data:
 
+# Réseau partagé avec catalogue et emploi-du-temps
 networks:
   planification-net:
+    # Même nom de réseau dans les 3 stacks → interconnexion automatique
     name: planification-net
     driver: bridge

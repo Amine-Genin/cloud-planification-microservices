@@ -11,20 +11,31 @@
 # Port hôte : 8083 → conteneur 8080 (WildFly)
 # =============================================================================
 
+# Déclaration des services Docker de cette stack
 services:
-  # --- Base de données MySQL -------------------------------------------------
+
+  # ---------------------------------------------------------------------------
+  # emploi-db — Base de données MySQL du microservice emploi-du-temps
+  # ---------------------------------------------------------------------------
   emploi-db:
+    # Image officielle MySQL 8.0
     image: mysql:8.0
+    # Nom fixe du conteneur (hostname DNS : emploi-db)
     container_name: emploi-db
     environment:
+      # Mot de passe root MySQL
       MYSQL_ROOT_PASSWORD: root
+      # Base créée automatiquement
       MYSQL_DATABASE: emploi_db
+      # Utilisateur applicatif WildFly
       MYSQL_USER: emploi_user
+      # Mot de passe applicatif
       MYSQL_PASSWORD: emploi_pass
     volumes:
+      # Persistance des plannings générés (pas de init.sql ici)
       - emploi-data:/var/lib/mysql
-      # Pas de init.sql : la base emploi stocke les plannings générés dynamiquement
     healthcheck:
+      # Ping MySQL pour valider que la base est prête
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
       interval: 10s
       timeout: 5s
@@ -33,27 +44,41 @@ services:
     networks:
       - planification-net
 
-  # --- Application WildFly ---------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # service-emploi-du-temps — Application WildFly (agrège catalogue + locaux)
+  # ---------------------------------------------------------------------------
   service-emploi-du-temps:
+    # Construit l'image depuis le Dockerfile du dossier courant
     build: .
+    # Nom fixe du conteneur (hostname DNS : service-emploi-du-temps)
     container_name: service-emploi-du-temps
     ports:
-      - "8083:8080"               # API accessible sur http://localhost:8083/api/emploi-du-temps
+      # API accessible sur http://localhost:8083/api/emploi-du-temps
+      - "8083:8080"
     environment:
+      # Nom JNDI de la datasource WildFly
       DATASOURCE_NAME: EmploiDS
+      # Hostname MySQL interne Docker
       DB_HOST: emploi-db
+      # Port MySQL
       DB_PORT: "3306"
+      # Nom de la base JDBC
       DB_NAME: emploi_db
+      # Identifiants JDBC
       DB_USER: emploi_user
       DB_PASSWORD: emploi_pass
-      # URLs des microservices amont (résolution DNS interne Docker)
+      # URL du microservice catalogue (résolution DNS : service-catalogue)
       CATALOGUE_BASE_URL: http://service-catalogue:8080
+      # URL du microservice locaux (résolution DNS : service-locaux)
       LOCAUX_BASE_URL: http://service-locaux:8080
     depends_on:
       emploi-db:
+        # Attend MySQL avant de démarrer WildFly
         condition: service_healthy
-      # Note : depends_on catalogue/locaux défini dans compose.yaml racine
+      # Note : depends_on service-catalogue et service-locaux
+      # est défini dans compose.yaml racine (orchestration globale)
     healthcheck:
+      # Vérifie que l'API emploi-du-temps répond correctement
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/emploi-du-temps"]
       interval: 15s
       timeout: 5s
@@ -62,10 +87,14 @@ services:
     networks:
       - planification-net
 
+# Volumes nommés
 volumes:
+  # Données MySQL persistantes pour emploi-db
   emploi-data:
 
+# Réseau partagé
 networks:
   planification-net:
+    # Réseau commun aux 3 microservices (communication inter-conteneurs)
     name: planification-net
     driver: bridge
