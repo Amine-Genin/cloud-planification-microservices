@@ -1,4 +1,16 @@
+# =============================================================================
+# service-locaux — Stack Docker Compose (Phase 2)
+# Microservice : gestion des locaux / salles (REST /api/locaux)
+# =============================================================================
+#
+# Usage standalone :
+#   cd service-locaux && docker compose up --build -d
+#
+# Port hôte : 8082 → conteneur 8080 (WildFly)
+# =============================================================================
+
 services:
+  # --- Base de données MySQL -------------------------------------------------
   locaux-db:
     image: mysql:8.0
     container_name: locaux-db
@@ -9,7 +21,7 @@ services:
       MYSQL_PASSWORD: locaux_pass
     volumes:
       - locaux-data:/var/lib/mysql
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql        # Schéma + données initiales
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
       interval: 10s
@@ -19,11 +31,12 @@ services:
     networks:
       - planification-net
 
+  # --- Application WildFly ---------------------------------------------------
   service-locaux:
     build: .
     container_name: service-locaux
     ports:
-      - "8082:8080"
+      - "8082:8080"               # API accessible sur http://localhost:8082/api/locaux
     environment:
       DATASOURCE_NAME: LocauxDS
       DB_HOST: locaux-db

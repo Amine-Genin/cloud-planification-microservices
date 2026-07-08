@@ -1,3 +1,12 @@
+# =============================================================================
+# ConfigMap — Variables d'environnement service-locaux (non sensibles)
+# =============================================================================
+#
+# Injecté dans le Deployment via envFrom.
+# Le mot de passe DB provient du Secret locaux-db-secret.
+# Lu par docker/entrypoint.sh pour configurer la datasource WildFly LocauxDS.
+# =============================================================================
+
 apiVersion: v1
 kind: ConfigMap
 metadata:

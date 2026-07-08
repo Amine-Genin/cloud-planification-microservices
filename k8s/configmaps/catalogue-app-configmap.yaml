@@ -1,3 +1,12 @@
+# =============================================================================
+# ConfigMap — Variables d'environnement service-catalogue (non sensibles)
+# =============================================================================
+#
+# Injecté dans le Deployment via envFrom (toutes les clés → variables d'env).
+# Le mot de passe DB (DB_PASSWORD) provient du Secret catalogue-db-secret.
+# Lu par docker/entrypoint.sh pour configurer la datasource WildFly CatalogueDS.
+# =============================================================================
+
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -6,8 +15,8 @@ metadata:
   labels:
     app: service-catalogue
 data:
-  DATASOURCE_NAME: CatalogueDS
-  DB_HOST: catalogue-db
+  DATASOURCE_NAME: CatalogueDS       # Nom JNDI de la datasource WildFly
+  DB_HOST: catalogue-db              # Service headless MySQL (DNS interne K8s)
   DB_PORT: "3306"
   DB_NAME: catalogue_db
   DB_USER: catalogue_user

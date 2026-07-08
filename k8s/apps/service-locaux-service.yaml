@@ -1,3 +1,11 @@
+# =============================================================================
+# Service ClusterIP — service-locaux
+# =============================================================================
+#
+# Expose le Deployment service-locaux en interne au cluster.
+# DNS interne : service-locaux.planification.svc.cluster.local:8080
+# =============================================================================
+
 apiVersion: v1
 kind: Service
 metadata:

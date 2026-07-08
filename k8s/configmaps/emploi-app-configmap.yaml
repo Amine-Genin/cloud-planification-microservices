@@ -1,3 +1,12 @@
+# =============================================================================
+# ConfigMap — Variables d'environnement service-emploi-du-temps (non sensibles)
+# =============================================================================
+#
+# Injecté dans le Deployment via envFrom.
+# Inclut les URLs des microservices amont pour les appels HTTP inter-services.
+# Le mot de passe DB provient du Secret emploi-db-secret.
+# =============================================================================
+
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -11,5 +20,6 @@ data:
   DB_PORT: "3306"
   DB_NAME: emploi_db
   DB_USER: emploi_user
+  # URLs internes K8s (Services ClusterIP) — équivalent Docker Compose
   CATALOGUE_BASE_URL: http://service-catalogue:8080
   LOCAUX_BASE_URL: http://service-locaux:8080

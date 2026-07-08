@@ -1,0 +1,594 @@
+================================================================================
+  GUIDE DE LANCEMENT COMPLET — DE A À Z
+  Projet 2 — Planification & Logistique — UMP Oujda
+  Master M2I — Cloud Computing — 2025/2026
+================================================================================
+
+  Dossier projet (racine) :
+    C:\Users\DELL\Documents\Master\Master_M2I\SEMESTRE 2\Cloud Computing\
+    Projets\MiniProjet2\projet2-planification-VF
+
+  Ce guide couvre les 3 phases dans l'ordre pédagogique :
+    Phase 2 → Docker Compose (hôte Windows)     — OBLIGATOIRE / le plus simple
+    Phase 3 → Vagrant + Docker Compose (VM)       — après Phase 2 OK
+    Phase 4 → Kubernetes / K3s                    — après Phase 3 ou Docker Desktop K8s
+
+  Durée totale estimée (première fois) :
+    Phase 2 : 5–10 min (build) + 2 min (démarrage)
+    Phase 3 : 10–20 min (premier vagrant up)
+    Phase 4 : 10–15 min (deploy.sh + pods Ready)
+
+================================================================================
+  PARTIE 0 — AVANT DE COMMENCER (UNE SEULE FOIS)
+================================================================================
+
+  OÙ : PowerShell ou Git Bash (n'importe quel dossier)
+
+  0.1 — Vérifier que les outils sont installés
+  ─────────────────────────────────────────────
+    docker --version
+    docker compose version
+    vagrant --version
+    VBoxManage --version
+    kubectl version --client
+    curl.exe --version
+    "C:\Program Files\Git\bin\bash.exe" --version
+
+  0.2 — Lancer Docker Desktop
+  ───────────────────────────
+    Ouvrir Docker Desktop et attendre l'icône « Running » (baleine stable).
+
+  0.3 — Règles Windows importantes
+  ────────────────────────────────
+    • Sous PowerShell : utiliser curl.exe (PAS curl seul → alias Invoke-WebRequest)
+    • Pour test.sh et scripts k8s : utiliser Git Bash
+    • Ne pas mélanger les ports :
+        Phase 2 → 8081 / 8082 / 8083
+        Phase 3 → 18081 / 18082 / 18083
+        Phase 4 → 30081 / 30082 / 30083
+
+  0.4 — Ouvrir le terminal à la racine du projet
+  ───────────────────────────────────────────────
+    OÙ : PowerShell ou Git Bash
+
+    cd "C:\Users\DELL\Documents\Master\Master_M2I\SEMESTRE 2\Cloud Computing\Projets\MiniProjet2\projet2-planification-VF"
+
+  0.5 — (Recommandé) Repartir propre avant une démo complète
+  ──────────────────────────────────────────────────────────
+    OÙ : racine projet2-planification-VF
+
+    docker compose down --remove-orphans
+    vagrant halt k3s-master
+    vagrant status
+
+    Si vous voulez réinitialiser les bases MySQL (Phase 2) :
+    docker compose down -v
+
+================================================================================
+  PARTIE 1 — PHASE 2 : DOCKER COMPOSE (HÔTE WINDOWS)
+  Objectif : lancer les 6 conteneurs + valider les 14 tests
+================================================================================
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 1.1 — Build image catalogue seule (commande projet / soutenance) │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : dossier service-catalogue/
+
+    cd "C:\Users\DELL\Documents\Master\Master_M2I\SEMESTRE 2\Cloud Computing\Projets\MiniProjet2\projet2-planification-VF\service-catalogue"
+    docker build -t service-catalogue .
+
+  RÉSULTAT ATTENDU :
+    → dernière ligne : naming to docker.io/library/service-catalogue:latest
+    → exit code 0
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 1.2 — Lancer toute la stack (3 services + 3 MySQL)             │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : racine projet2-planification-VF
+
+    cd "C:\Users\DELL\Documents\Master\Master_M2I\SEMESTRE 2\Cloud Computing\Projets\MiniProjet2\projet2-planification-VF"
+    docker compose up --build -d
+
+  RÉSULTAT ATTENDU :
+    → Building images service-catalogue, service-locaux, service-emploi-du-temps
+    → Container ... Started / Healthy
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 1.3 — Attendre le démarrage (OBLIGATOIRE)                        │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : racine (PowerShell)
+
+    Start-Sleep -Seconds 120
+
+  WildFly met 90 à 120 secondes à devenir healthy.
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 1.4 — Vérifier l'état des conteneurs                             │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : racine projet2-planification-VF
+
+    docker compose ps
+
+  RÉSULTAT ATTENDU (6 lignes Up healthy) :
+    catalogue-db              Up (healthy)
+    locaux-db                 Up (healthy)
+    emploi-db                 Up (healthy)
+    service-catalogue         Up (healthy)   0.0.0.0:8081->8080/tcp
+    service-locaux            Up (healthy)   0.0.0.0:8082->8080/tcp
+    service-emploi-du-temps   Up (healthy)   0.0.0.0:8083->8080/tcp
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 1.5 — Tester les 3 API (curl)                                    │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : n'importe où (PowerShell — utiliser curl.exe)
+
+    curl.exe http://localhost:8081/api/cours
+    curl.exe http://localhost:8082/api/locaux
+    curl.exe http://localhost:8083/api/emploi-du-temps
+
+  RÉSULTAT ATTENDU :
+    → HTTP 200 + JSON (10 cours, 10 locaux, tableau séances vide ou avec données)
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 1.6 — Tests d'intégration automatiques (14 tests)                │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : racine projet2-planification-VF — Git Bash OBLIGATOIRE
+
+    cd "/c/Users/DELL/Documents/Master/Master_M2I/SEMESTRE 2/Cloud Computing/Projets/MiniProjet2/projet2-planification-VF"
+    chmod +x test.sh
+    ./test.sh
+
+  Alternative Windows (PowerShell) :
+    & "C:\Program Files\Git\bin\bash.exe" "./test.sh"
+
+  RÉSULTAT ATTENDU :
+    → RÉSULTAT GLOBAL : SUCCÈS — 14 tests réussis
+    → exit code 0
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 1.7 — (Optionnel) Tests Postman                                  │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : application Postman (hôte Windows)
+
+    1. Importer : postman_collection.json (racine du projet)
+    2. Lancer les requêtes GET /api/cours, /api/locaux, POST emploi-du-temps
+    3. URLs : localhost:8081, 8082, 8083
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 1.8 — (Optionnel) Voir les logs en cas de problème               │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : racine projet2-planification-VF
+
+    docker compose logs service-catalogue
+    docker compose logs service-locaux
+    docker compose logs service-emploi-du-temps
+    docker compose logs catalogue-db
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 1.9 — Arrêter Phase 2 (avant Phase 3 ou en fin de session)       │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : racine projet2-planification-VF
+
+    docker compose down
+
+  Pour tout supprimer y compris les volumes MySQL :
+    docker compose down -v
+
+================================================================================
+  PARTIE 2 — PHASE 3 : VAGRANT (VM UBUNTU + DOCKER COMPOSE)
+  Objectif : même stack dans une VM, ports 18081–18083 sur Windows
+  PRÉREQUIS : VirtualBox 7.x + Vagrant 2.4+ + virtualisation BIOS activée
+================================================================================
+
+  IMPORTANT :
+    • Arrêter Docker Compose local avant Vagrant (libère RAM et évite confusion) :
+        docker compose down
+    • Première exécution : 10 à 20 minutes
+    • Si timeout SSH : voir PARTIE 5 (dépannage)
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 2.1 — Vérifier l'état Vagrant                                    │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : racine projet2-planification-VF
+
+    vagrant status
+
+  RÉSULTAT ATTENDU (avant premier lancement) :
+    k3s-master   not created  OU  poweroff
+    k3s-worker   not created
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 2.2 — Lancer la VM principale                                    │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : racine projet2-planification-VF
+
+    vagrant up k3s-master
+
+  Ce que fait Vagrant automatiquement :
+    1. Télécharge Ubuntu 22.04 (première fois)
+    2. Exécute vagrant/provision.sh  → installe Docker
+    3. Exécute vagrant/start-app.sh  → copie projet + docker compose up --build -d
+
+  Attendre la fin sans interrompre (peut prendre 10–20 min).
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 2.3 — Vérifier que la VM tourne                                  │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : racine projet2-planification-VF
+
+    vagrant status k3s-master
+
+  RÉSULTAT ATTENDU :
+    k3s-master   running (virtualbox)
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 2.4 — Tester les API depuis Windows (ports forwardés)            │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : PowerShell (hôte Windows)
+
+    curl.exe http://localhost:18081/api/cours
+    curl.exe http://localhost:18082/api/locaux
+    curl.exe http://localhost:18083/api/emploi-du-temps
+
+  RÉSULTAT ATTENDU :
+    → HTTP 200 + JSON
+
+  NOTE : 18081 ≠ 8081
+    8081  = Phase 2 (Docker Desktop local)
+    18081 = Phase 3 (Vagrant forward guest:8081 → host:18081)
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 2.5 — Tests d'intégration dans la VM                              │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : racine projet2-planification-VF (commande lancée depuis Windows)
+
+    vagrant ssh k3s-master -c "cd /home/vagrant/projet2-planification && ./test.sh"
+
+  OU se connecter manuellement :
+    vagrant ssh k3s-master
+    cd /home/vagrant/projet2-planification
+    ./test.sh
+    exit
+
+  RÉSULTAT ATTENDU :
+    → 14 tests [PASS]
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 2.6 — Vérifier Docker Compose DANS la VM                          │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : via SSH dans la VM
+
+    vagrant ssh k3s-master -c "cd /home/vagrant/projet2-planification && docker compose ps"
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 2.7 — Commandes Vagrant utiles                                   │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : racine projet2-planification-VF
+
+    vagrant ssh k3s-master              # connexion SSH
+    vagrant reload k3s-master           # redémarrer VM + relancer start-app.sh
+    vagrant halt k3s-master             # arrêter VM
+    vagrant destroy k3s-master -f       # supprimer VM (repartir de zéro)
+
+================================================================================
+  PARTIE 3 — PHASE 4 : KUBERNETES / K3s
+  Objectif : déployer sur K8s + commandes kubectl de vérification
+  PRÉREQUIS : cluster K3s actif OU Kubernetes Docker Desktop activé
+================================================================================
+
+  ── OPTION A (recommandée cours) : K3s dans la VM Vagrant ──
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 3.1 — Se connecter à la VM                                       │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : racine projet2-planification-VF
+
+    vagrant ssh k3s-master
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 3.2 — Installer K3s (DANS la VM — une seule fois)                │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : shell SSH de la VM k3s-master
+
+    curl -sfL https://get.k3s.io | sh -
+    mkdir -p ~/.kube
+    sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+    sudo chown vagrant:vagrant ~/.kube/config
+    export KUBECONFIG=~/.kube/config
+    kubectl get nodes
+
+  RÉSULTAT ATTENDU :
+    → NAME k3s-master STATUS Ready ROLES control-plane,master
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 3.3 — Déployer le projet sur Kubernetes                          │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : shell SSH de la VM — dossier projet
+
+    cd /home/vagrant/projet2-planification
+    chmod +x k8s/scripts/*.sh
+    ./k8s/scripts/deploy.sh
+
+  Ce script exécute automatiquement :
+    1. k8s/scripts/build-images.sh
+    2. k8s/scripts/import-images-k3s.sh
+    3. k8s/scripts/sync-init-sql.sh
+    4. kubectl apply -k k8s/
+    5. Attente pods Ready
+
+  Durée : 10–15 minutes (build + démarrage WildFly dans les pods).
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 3.4 — Configurer kubectl sur Windows (pour commandes depuis hôte)  │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : VM puis Windows
+
+  Dans la VM :
+    sudo cat /etc/rancher/k3s/k3s.yaml
+
+  Copier le contenu dans un fichier Windows, ex. :
+    C:\Users\DELL\.kube\k3s-vagrant.yaml
+
+  Modifier la ligne server: remplacer l'IP interne par :
+    server: https://127.0.0.1:6443
+
+  Sous PowerShell (session courante) :
+    $env:KUBECONFIG = "C:\Users\DELL\.kube\k3s-vagrant.yaml"
+    kubectl get nodes
+
+  ── OPTION B : Kubernetes via Docker Desktop ──
+
+  OÙ : Docker Desktop → Settings → Kubernetes → Enable Kubernetes → Apply
+
+  Puis Git Bash, racine projet :
+    cd "/c/Users/DELL/Documents/Master/Master_M2I/SEMESTRE 2/Cloud Computing/Projets/MiniProjet2/projet2-planification-VF"
+    chmod +x k8s/scripts/*.sh
+    IMPORT_K3S=0 ./k8s/scripts/deploy.sh
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 3.5 — COMMANDES KUBERNETES INDISPENSABLES (depuis Windows ou VM)   │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : PowerShell ou Git Bash (KUBECONFIG configuré)
+
+    kubectl get nodes
+    kubectl get pods -n planification
+    kubectl get secrets,configmaps -n planification
+    kubectl get statefulsets,pvc -n planification
+    kubectl get ingress -n planification
+
+  RÉSULTAT ATTENDU :
+    nodes     → Ready
+    pods      → catalogue-db-0, locaux-db-0, emploi-db-0, service-* → Running
+    secrets   → catalogue-db-secret, locaux-db-secret, emploi-db-secret
+    configmaps→ catalogue-app-configmap, locaux-app-configmap, emploi-app-configmap
+    statefulsets → catalogue-db, locaux-db, emploi-db (READY 1/1)
+    pvc       → data-catalogue-db-0, data-locaux-db-0, data-emploi-db-0 (Bound)
+    ingress   → planification-ingress (si Traefik actif)
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 3.6 — Tester les API Kubernetes (NodePort)                       │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : PowerShell (hôte Windows — ports forwardés si Vagrant, sinon localhost)
+
+    curl.exe http://localhost:30081/api/cours
+    curl.exe http://localhost:30082/api/locaux
+    curl.exe http://localhost:30083/api/emploi-du-temps
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 3.7 — (Optionnel) Tester via Ingress                             │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : fichier hosts Windows (administrateur)
+    C:\Windows\System32\drivers\etc\hosts
+
+  Ajouter la ligne :
+    127.0.0.1 planification.local
+
+  Puis :
+    curl.exe http://planification.local/api/cours
+    curl.exe http://planification.local/api/locaux
+    curl.exe http://planification.local/api/emploi-du-temps
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 3.8 — Logs et diagnostic K8s                                     │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : PowerShell / Git Bash
+
+    kubectl get pods -n planification -w
+    kubectl logs -n planification deploy/service-catalogue
+    kubectl logs -n planification statefulset/catalogue-db
+    kubectl describe pod -n planification -l app=service-catalogue
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ ÉTAPE 3.9 — Supprimer le déploiement K8s                               │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  OÙ : Git Bash — racine projet
+
+    ./k8s/scripts/undeploy.sh
+
+================================================================================
+  PARTIE 4 — RÉCAPITULATIF : TOUTES LES COMMANDES INDISPENSABLES DU PROJET
+  (dans l'ordre logique d'une soutenance / vérification complète)
+================================================================================
+
+  # ── Préparation ──
+  OÙ : racine
+  docker compose down --remove-orphans
+
+  # ── Phase 2 ──
+  OÙ : service-catalogue/
+  docker build -t service-catalogue .
+
+  OÙ : racine
+  docker compose up --build -d
+  docker compose ps
+
+  OÙ : Git Bash — racine
+  ./test.sh
+
+  OÙ : PowerShell
+  curl.exe http://localhost:8081/api/cours
+  curl.exe http://localhost:8082/api/locaux
+  curl.exe http://localhost:8083/api/emploi-du-temps
+
+  # ── Phase 3 ──
+  OÙ : racine
+  docker compose down
+  vagrant up k3s-master
+  vagrant status
+
+  OÙ : PowerShell
+  curl.exe http://localhost:18081/api/cours
+
+  OÙ : racine
+  vagrant ssh k3s-master -c "cd /home/vagrant/projet2-planification && ./test.sh"
+
+  # ── Phase 4 ──
+  OÙ : VM (vagrant ssh) puis racine dans VM
+  curl -sfL https://get.k3s.io | sh -
+  cd /home/vagrant/projet2-planification && ./k8s/scripts/deploy.sh
+
+  OÙ : Windows (KUBECONFIG configuré)
+  kubectl get nodes
+  kubectl get pods -n planification
+  kubectl get secrets,configmaps -n planification
+  kubectl get statefulsets,pvc -n planification
+  kubectl get ingress -n planification
+
+  curl.exe http://localhost:30081/api/cours
+
+  # ── Arrêt complet en fin de session ──
+  OÙ : racine
+  docker compose down
+  vagrant halt k3s-master
+  ./k8s/scripts/undeploy.sh    # si Phase 4 déployée
+
+================================================================================
+  PARTIE 5 — TABLEAU DES PORTS (NE PAS CONFONDRE)
+================================================================================
+
+  ┌──────────────┬──────────────────┬──────────────────┬──────────────────┐
+  │ Service      │ Phase 2 Compose  │ Phase 3 Vagrant  │ Phase 4 K8s      │
+  ├──────────────┼──────────────────┼──────────────────┼──────────────────┤
+  │ Catalogue    │ localhost:8081   │ localhost:18081  │ localhost:30081  │
+  │ Locaux       │ localhost:8082   │ localhost:18082  │ localhost:30082  │
+  │ Emploi temps │ localhost:8083   │ localhost:18083  │ localhost:30083  │
+  │ API K3s      │ —                │ localhost:6443   │ localhost:6443   │
+  └──────────────┴──────────────────┴──────────────────┴──────────────────┘
+
+================================================================================
+  PARTIE 6 — DÉPANNAGE RAPIDE
+================================================================================
+
+  PROBLÈME : docker compose ps vide
+  OÙ : racine
+  SOLUTION : docker compose up --build -d
+
+  PROBLÈME : test.sh [FAIL] HTTP 000
+  CAUSE : services pas démarrés ou mauvais ports
+  SOLUTION : attendre 2 min après compose up ; vérifier docker compose ps
+
+  PROBLÈME : curl sous PowerShell échoue
+  SOLUTION : utiliser curl.exe (pas curl)
+
+  PROBLÈME : vagrant up timeout SSH
+  SOLUTION :
+    1. VirtualBox → Réseau hôte → adaptateur 192.168.56.1
+    2. vagrant destroy k3s-master -f && vagrant up k3s-master
+    3. Désactiver « Plateforme machine virtuelle » (conflit Hyper-V/WSL2)
+    4. Voir PHASE3_VAGRANT.txt section DÉPANNAGE
+
+  PROBLÈME : kubectl Unable to connect to server
+  SOLUTION : installer K3s ou activer K8s Docker Desktop ; configurer KUBECONFIG
+
+  PROBLÈME : conteneur unhealthy
+  OÙ : racine
+  SOLUTION : docker compose logs <nom-service> ; attendre encore 60–90 s
+
+================================================================================
+  PARTIE 7 — CHECKLIST FINALE « TOUT FONCTIONNE »
+================================================================================
+
+  PHASE 2
+  [ ] docker compose ps          → 6 conteneurs Up (healthy)
+  [ ] curl.exe :8081/:8082/:8083 → JSON HTTP 200
+  [ ] ./test.sh                  → 14 PASS
+
+  PHASE 3
+  [ ] vagrant status             → k3s-master running
+  [ ] curl.exe :18081            → JSON HTTP 200
+  [ ] test.sh dans VM            → 14 PASS
+
+  PHASE 4
+  [ ] kubectl get nodes          → Ready
+  [ ] kubectl get pods -n planification → Running
+  [ ] kubectl get secrets,configmaps -n planification → ressources listées
+  [ ] kubectl get statefulsets,pvc -n planification → Bound
+  [ ] kubectl get ingress -n planification → règles présentes
+  [ ] curl.exe :30081            → JSON HTTP 200
+
+================================================================================
+  PARTIE 8 — DOCUMENTS COMPLÉMENTAIRES DU PROJET
+================================================================================
+
+  README.md                          → vue d'ensemble
+  RAPPORT_GENERAL.txt                → rapport complet soutenance
+  RESULTATS_COMMANDES_VERIFICATION.txt → sorties brutes des tests
+  PHASE3_VAGRANT.txt                 → détail Phase 3
+  PHASE4_K8S.txt                     → détail Phase 4
+  GUIDE_DEMO_COMPLET.txt             → scénario démo
+  postman_collection.json            → tests Postman
+
+================================================================================
+  ORDRE RECOMMANDÉ POUR UNE SESSION COMPLÈTE (DÉMO A → Z)
+================================================================================
+
+  JOUR / SESSION TYPE « SOUTENANCE COMPLÈTE » :
+
+  1.  Ouvrir Docker Desktop
+  2.  cd projet2-planification-VF
+  3.  docker compose up --build -d          ← Phase 2
+  4.  Attendre 2 min
+  5.  docker compose ps
+  6.  ./test.sh (Git Bash)
+  7.  curl.exe localhost:8081/api/cours
+  8.  docker compose down
+  9.  vagrant up k3s-master                 ← Phase 3
+  10. curl.exe localhost:18081/api/cours
+  11. vagrant ssh → installer K3s           ← Phase 4 début
+  12. ./k8s/scripts/deploy.sh
+  13. kubectl get nodes / pods / secrets / statefulsets / ingress
+  14. curl.exe localhost:30081/api/cours
+  15. vagrant halt + docker compose down + undeploy.sh
+
+  SESSION TYPE « DÉMO RAPIDE » (si peu de temps) :
+  → Faire uniquement les étapes 1 à 7 (Phase 2 suffit).
+
+================================================================================
+  FIN DU GUIDE — Bonne chance pour votre démo !
+  Projet 2 — UMP Oujda — Master M2I Cloud Computing 2025/2026
+================================================================================

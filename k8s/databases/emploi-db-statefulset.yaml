@@ -1,3 +1,17 @@
+# =============================================================================
+# StatefulSet — emploi-db (MySQL 8.0)
+# =============================================================================
+#
+# Base de données persistante du microservice emploi-du-temps.
+# Équivalent Docker Compose : service emploi-db + volume emploi-data.
+#
+# Différence avec catalogue/locaux : pas de script init.sql
+# (la base stocke les plannings générés dynamiquement par l'application).
+#
+# Persistance : PVC 1Gi
+# Credentials : Secret emploi-db-secret
+# =============================================================================
+
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -28,6 +42,7 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/mysql
+
           livenessProbe:
             exec:
               command:
@@ -38,6 +53,7 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 5
+
           readinessProbe:
             exec:
               command:
@@ -47,6 +63,7 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 5
             timeoutSeconds: 3
+
           resources:
             requests:
               memory: "256Mi"
@@ -54,6 +71,7 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "500m"
+
   volumeClaimTemplates:
     - metadata:
         name: data

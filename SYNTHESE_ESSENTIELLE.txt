@@ -1,0 +1,106 @@
+================================================================================
+  SYNTHÈSE ESSENTIELLE — Projet 2 Planification & Logistique (UMP Oujda)
+  Master M2I Cloud Computing 2025/2026 — Résumé de tous les fichiers indispensables
+================================================================================
+
+  1 projet = 3 microservices Jakarta EE 10 (WildFly 27 + MySQL 8), API REST JSON.
+  Chaque service = 1 app + 1 base MySQL (pattern "database per service").
+  Déployable en 3 phases (même code) : Docker Compose → Vagrant → Kubernetes.
+
+--------------------------------------------------------------------------------
+  LES 3 SERVICES (rôle + port + base)
+--------------------------------------------------------------------------------
+  catalogue        cours (CRUD autonome)          8081  /api/cours          catalogue_db
+  locaux           salles + dispo (CRUD autonome) 8082  /api/locaux         locaux_db
+  emploi-du-temps  ORCHESTRATEUR (planifie)       8083  /api/emploi-du-temps emploi_db
+
+  Couplage UNIDIRECTIONNEL : seul emploi-du-temps appelle catalogue + locaux (HTTP).
+  Catalogue et locaux ne se connaissent pas.
+
+  Flux planifierSeance() : valider → GET cours(catalogue) → GET locaux dispo →
+  détecter conflit horaire (409) → PATCH salle=OCCUPE → INSERT séance (201).
+
+--------------------------------------------------------------------------------
+  ORDRE DE DÉMARRAGE : nécessaire ? — NON (géré automatiquement)
+--------------------------------------------------------------------------------
+  docker compose gère l'ordre via depends_on + healthcheck :
+  MySQL → catalogue + locaux (healthy) → emploi-du-temps démarre en dernier.
+  Une seule commande lance tout. En manuel, respecter : catalogue & locaux AVANT emploi.
+
+================================================================================
+  GUIDE DES COMMANDES (minimal)
+================================================================================
+
+  AVANT TOUT (une fois) : lancer Docker Desktop.
+  OÙ : PowerShell/Git Bash à la RACINE projet2-planification-VF.
+  Règle Windows : curl.exe (pas curl) ; test.sh via Git Bash.
+
+  ── PHASE 2 — DOCKER COMPOSE (le plus simple, recommandé) ──
+  docker compose up --build -d          # lance les 6 conteneurs (attendre ~2 min)
+  docker compose ps                     # doit montrer 6x Up (healthy)
+  ./test.sh                             # (Git Bash) → 14 tests PASS
+  docker compose down                   # arrêter   (down -v = + reset bases)
+
+  ── PHASE 3 — VAGRANT (VM Ubuntu, ports 18081-18083) ──
+  docker compose down                   # libérer avant
+  vagrant up k3s-master                 # 1re fois 10-20 min (auto: Docker+compose)
+  vagrant status                        # running
+  curl.exe http://localhost:18081/api/cours
+  vagrant ssh k3s-master -c "cd /home/vagrant/projet2-planification && ./test.sh"
+  vagrant halt k3s-master               # arrêter  (destroy -f = supprimer)
+
+  ── PHASE 4 — KUBERNETES / K3s (ports 30081-30083) ──
+  vagrant ssh k3s-master                # entrer dans la VM
+  curl -sfL https://get.k3s.io | sh -   # installer K3s (1 fois, dans la VM)
+  cd /home/vagrant/projet2-planification && ./k8s/scripts/deploy.sh
+  kubectl get nodes                     # Ready
+  kubectl get pods -n planification     # tous Running
+  kubectl get secrets,configmaps -n planification
+  kubectl get statefulsets,pvc -n planification   # PVC Bound
+  kubectl get ingress -n planification
+  ./k8s/scripts/undeploy.sh             # supprimer
+
+================================================================================
+  TESTS PAR SERVICE (curl — Git Bash ; ou navigateur pour les GET)
+================================================================================
+
+  # CATALOGUE (8081)
+  curl http://localhost:8081/api/cours                    # liste (10 cours)
+  curl http://localhost:8081/api/cours/1                  # par id
+  curl http://localhost:8081/api/cours/code/INF305        # par code
+  curl -X POST http://localhost:8081/api/cours -H "Content-Type: application/json" \
+    -d '{"code":"INF311","intitule":"DevOps","credits":5}'   # créer → 201
+  # (même code 2x → 400 unicité ; id 9999 → 404)
+
+  # LOCAUX (8082)
+  curl http://localhost:8082/api/locaux                            # liste (10 salles)
+  curl "http://localhost:8082/api/locaux/disponibles?capaciteMin=100"  # filtre dispo
+  curl http://localhost:8082/api/locaux/type/LABO                  # par type
+  curl -X PATCH "http://localhost:8082/api/locaux/1/disponibilite?valeur=OCCUPE"  # état
+  # (type invalide → 400)
+
+  # EMPLOI-DU-TEMPS (8083) — ORCHESTRATEUR
+  curl http://localhost:8083/api/emploi-du-temps                   # liste séances
+  curl -X POST http://localhost:8083/api/emploi-du-temps -H "Content-Type: application/json" \
+    -d '{"coursId":1,"localId":1,"jour":"LUNDI","heureDebut":"08:00","heureFin":"10:00","semestre":"S2-2026","type":"COURS_MAGISTRAL"}'  # → 201
+  # rejouer sur créneau chevauchant (même salle/jour) → 409 conflit
+  curl http://localhost:8083/api/emploi-du-temps/jour/LUNDI       # par jour
+  curl -X DELETE http://localhost:8083/api/emploi-du-temps/1      # → 204 (libère salle)
+
+  Note ports : Phase 2 = 8081/8082/8083 · Phase 3 = 18081.. · Phase 4 = 30081..
+
+================================================================================
+  CODES HTTP : 200 ok · 201 créé · 204 supprimé · 400 données · 404 absent · 409 conflit
+--------------------------------------------------------------------------------
+  DÉPANNAGE EXPRESS
+    compose ps vide / test 000  → docker compose up -d + attendre 2 min
+    curl PowerShell échoue      → utiliser curl.exe
+    vagrant timeout SSH         → destroy + up ; conflit Hyper-V (voir PHASE3_VAGRANT.txt)
+    kubectl unable to connect   → K3s non installé / KUBECONFIG absent
+--------------------------------------------------------------------------------
+  FICHIERS SOURCES RÉSUMÉS ICI (dossier fichiers_indispensables/) :
+    RAPPORT_GENERAL · GUIDE_LANCEMENT_A_Z · GUIDE_DEMO_COMPLET ·
+    PHASE3_VAGRANT · PHASE4_K8S · RESULTATS_COMMANDES_VERIFICATION ·
+    DEMO_TEST_{CATALOGUE,LOCAUX,EMPLOI_DU_TEMPS} ·
+    {AYMANE_CATALOGUE, AMINE_LOCAUX, AYOUB_EMPLOI_DU_TEMPS}
+================================================================================

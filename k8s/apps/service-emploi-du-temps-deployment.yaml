@@ -1,3 +1,16 @@
+# =============================================================================
+# Deployment — service-emploi-du-temps (WildFly + WAR emploi du temps)
+# =============================================================================
+#
+# Déploie le microservice emploi du temps — agrège catalogue + locaux via HTTP.
+# Image pré-construite : ump/service-emploi-du-temps:1.0.0
+#
+# Stratégie de démarrage (3 initContainers) :
+#   1. wait-for-mysql     : attend emploi-db:3306
+#   2. wait-for-catalogue : attend GET /api/cours sur service-catalogue
+#   3. wait-for-locaux    : attend GET /api/locaux sur service-locaux
+# =============================================================================
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -16,6 +29,7 @@ spec:
         app: service-emploi-du-temps
     spec:
       initContainers:
+        # Attente base de données emploi
         - name: wait-for-mysql
           image: busybox:1.36
           command:
@@ -25,6 +39,8 @@ spec:
               echo "Attente MySQL emploi-db:3306..."
               until nc -z emploi-db 3306; do sleep 3; done
               echo "MySQL emploi-db disponible."
+
+        # Attente microservice catalogue (dépendance HTTP)
         - name: wait-for-catalogue
           image: curlimages/curl:8.5.0
           command:
@@ -34,6 +50,8 @@ spec:
               echo "Attente service-catalogue..."
               until curl -sf http://service-catalogue:8080/api/cours; do sleep 5; done
               echo "service-catalogue disponible."
+
+        # Attente microservice locaux (dépendance HTTP)
         - name: wait-for-locaux
           image: curlimages/curl:8.5.0
           command:
@@ -43,6 +61,7 @@ spec:
               echo "Attente service-locaux..."
               until curl -sf http://service-locaux:8080/api/locaux; do sleep 5; done
               echo "service-locaux disponible."
+
       containers:
         - name: service-emploi-du-temps
           image: ump/service-emploi-du-temps:1.0.0
@@ -52,13 +71,14 @@ spec:
               name: http
           envFrom:
             - configMapRef:
-                name: emploi-app-config
+                name: emploi-app-config    # Inclut CATALOGUE_BASE_URL et LOCAUX_BASE_URL
           env:
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: emploi-db-secret
                   key: MYSQL_PASSWORD
+
           livenessProbe:
             httpGet:
               path: /api/emploi-du-temps
@@ -67,6 +87,7 @@ spec:
             periodSeconds: 15
             timeoutSeconds: 5
             failureThreshold: 5
+
           readinessProbe:
             httpGet:
               path: /api/emploi-du-temps
@@ -75,6 +96,7 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
+
           resources:
             requests:
               memory: "512Mi"

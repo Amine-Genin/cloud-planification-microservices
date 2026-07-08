@@ -1,6 +1,20 @@
-# Services NodePort — accès direct sans Ingress (optionnel)
-# Ports alignés sur Docker Compose Phase 2 : 8081, 8082, 8083
+# =============================================================================
+# Services NodePort — Accès direct aux microservices sans Ingress
+# =============================================================================
+#
+# Optionnel : permet d'accéder aux APIs depuis l'hôte via les ports NodePort.
+# Ports alignés sur Docker Compose Phase 2 (8081→30081, 8082→30082, 8083→30083).
+#
+# Depuis Windows (via Vagrant port forward sur k3s-master) :
+#   http://localhost:30081/api/cours
+#   http://localhost:30082/api/locaux
+#   http://localhost:30083/api/emploi-du-temps
+#
+# Note : 3 ressources Service séparées (documents multi-objets YAML avec ---)
+# =============================================================================
+
 ---
+# NodePort pour service-catalogue (port externe 30081)
 apiVersion: v1
 kind: Service
 metadata:
@@ -11,13 +25,15 @@ metadata:
 spec:
   type: NodePort
   selector:
-    app: service-catalogue
+    app: service-catalogue       # Cible les pods du Deployment service-catalogue
   ports:
     - name: http
-      port: 8080
-      targetPort: 8080
-      nodePort: 30081
+      port: 8080                 # Port du Service (interne cluster)
+      targetPort: 8080           # Port du conteneur WildFly
+      nodePort: 30081            # Port exposé sur chaque nœud du cluster
+
 ---
+# NodePort pour service-locaux (port externe 30082)
 apiVersion: v1
 kind: Service
 metadata:
@@ -34,7 +50,9 @@ spec:
       port: 8080
       targetPort: 8080
       nodePort: 30082
+
 ---
+# NodePort pour service-emploi-du-temps (port externe 30083)
 apiVersion: v1
 kind: Service
 metadata:

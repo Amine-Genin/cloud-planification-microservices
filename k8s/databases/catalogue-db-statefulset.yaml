@@ -1,3 +1,17 @@
+# =============================================================================
+# StatefulSet — catalogue-db (MySQL 8.0)
+# =============================================================================
+#
+# Base de données persistante du microservice catalogue.
+# Équivalent Docker Compose : service catalogue-db + volume catalogue-data.
+#
+# Persistance :
+#   - volumeClaimTemplates : PVC dynamique 1Gi (ReadWriteOnce)
+#   - ConfigMap catalogue-db-init : script init.sql monté dans /docker-entrypoint-initdb.d
+#
+# Credentials : Secret catalogue-db-secret (envFrom)
+# =============================================================================
+
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -6,7 +20,7 @@ metadata:
   labels:
     app: catalogue-db
 spec:
-  serviceName: catalogue-db
+  serviceName: catalogue-db          # Doit correspondre au Service headless
   replicas: 1
   selector:
     matchLabels:
@@ -24,12 +38,13 @@ spec:
               name: mysql
           envFrom:
             - secretRef:
-                name: catalogue-db-secret
+                name: catalogue-db-secret    # MYSQL_ROOT_PASSWORD, MYSQL_DATABASE, etc.
           volumeMounts:
             - name: data
-              mountPath: /var/lib/mysql
+              mountPath: /var/lib/mysql      # Données persistantes MySQL
             - name: init-scripts
-              mountPath: /docker-entrypoint-initdb.d
+              mountPath: /docker-entrypoint-initdb.d   # Exécuté au premier démarrage
+
           livenessProbe:
             exec:
               command:
@@ -40,6 +55,7 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 5
+
           readinessProbe:
             exec:
               command:
@@ -49,6 +65,7 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 5
             timeoutSeconds: 3
+
           resources:
             requests:
               memory: "256Mi"
@@ -56,10 +73,13 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "500m"
+
       volumes:
         - name: init-scripts
           configMap:
-            name: catalogue-db-init
+            name: catalogue-db-init        # Généré par kustomization.yaml
+
+  # PVC automatique par replica (catalogue-db-0 → data-catalogue-db-0)
   volumeClaimTemplates:
     - metadata:
         name: data

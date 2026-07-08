@@ -1,20 +1,42 @@
+# =============================================================================
 # Projet 2 — Phase 2 : Orchestration maître des microservices UMP Oujda
-# Usage : docker compose up --build -d
-# Réseau partagé : planification-net
+# =============================================================================
+#
+# Fichier Compose racine : agrège les 3 stacks (catalogue, locaux, emploi-du-temps)
+# et définit les dépendances inter-services + le réseau partagé.
+#
+# Usage :
+#   docker compose up --build -d
+#   docker compose ps
+#   docker compose logs -f service-emploi-du-temps
+#
+# Ports exposés sur l'hôte :
+#   8081 → service-catalogue   (/api/cours)
+#   8082 → service-locaux      (/api/locaux)
+#   8083 → service-emploi-du-temps (/api/emploi-du-temps)
+#
+# Réseau partagé : planification-net (résolution DNS par nom de service)
+# =============================================================================
 
+# Inclusion des fichiers Compose de chaque microservice (DB + app)
 include:
   - path: ./service-catalogue/compose.yaml
   - path: ./service-locaux/compose.yaml
   - path: ./service-emploi-du-temps/compose.yaml
 
 services:
+  # --- Surcharges au niveau racine -------------------------------------------
+  # Les healthchecks et depends_on sont centralisés ici pour garantir
+  # que service-emploi-du-temps démarre après catalogue ET locaux.
+
   service-catalogue:
     healthcheck:
+      # Vérifie que l'API REST répond (WildFly + WAR déployé)
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/cours"]
       interval: 15s
       timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 60s   # WildFly met ~60s à démarrer et déployer le WAR
 
   service-locaux:
     healthcheck:
@@ -29,9 +51,9 @@ services:
       emploi-db:
         condition: service_healthy
       service-catalogue:
-        condition: service_healthy
+        condition: service_healthy   # Appels HTTP vers /api/cours
       service-locaux:
-        condition: service_healthy
+        condition: service_healthy   # Appels HTTP vers /api/locaux
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/emploi-du-temps"]
       interval: 15s
@@ -39,6 +61,7 @@ services:
       retries: 3
       start_period: 60s
 
+# Réseau bridge commun — tous les conteneurs communiquent par nom DNS
 networks:
   planification-net:
     name: planification-net

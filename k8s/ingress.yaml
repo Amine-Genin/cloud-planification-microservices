@@ -1,3 +1,21 @@
+# =============================================================================
+# Ingress — Routage HTTP unifié vers les 3 microservices
+# =============================================================================
+#
+# Expose une URL unique (planification.local) avec routage par chemin :
+#   /api/cours            → service-catalogue:8080
+#   /api/locaux           → service-locaux:8080
+#   /api/emploi-du-temps  → service-emploi-du-temps:8080
+#
+# Prérequis K3s :
+#   - Traefik installé par défaut (ingressClassName: traefik)
+#   - Ajouter dans C:\Windows\System32\drivers\etc\hosts :
+#       127.0.0.1  planification.local
+#   - Port forward Vagrant : guest 80 → host (via Traefik)
+#
+# Alternative sans Ingress : utiliser nodeport-services.yaml (ports 30081-30083)
+# =============================================================================
+
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -6,7 +24,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: ump-planification
   annotations:
-    # K3s utilise Traefik par défaut
+    # K3s utilise Traefik comme Ingress Controller par défaut
     traefik.ingress.kubernetes.io/router.entrypoints: web
 spec:
   ingressClassName: traefik
@@ -22,6 +40,7 @@ spec:
                 name: service-catalogue
                 port:
                   number: 8080
+
           # Locaux — LocalResource @Path("/locaux")
           - path: /api/locaux
             pathType: Prefix
@@ -30,6 +49,7 @@ spec:
                 name: service-locaux
                 port:
                   number: 8080
+
           # Emploi du temps — EmploiDuTempsResource @Path("/emploi-du-temps")
           - path: /api/emploi-du-temps
             pathType: Prefix

@@ -1,3 +1,12 @@
+# =============================================================================
+# Service ClusterIP — service-catalogue
+# =============================================================================
+#
+# Expose le Deployment service-catalogue en interne au cluster.
+# DNS interne : service-catalogue.planification.svc.cluster.local:8080
+# Utilisé par l'Ingress, les NodePort et service-emploi-du-temps.
+# =============================================================================
+
 apiVersion: v1
 kind: Service
 metadata:
@@ -6,10 +15,10 @@ metadata:
   labels:
     app: service-catalogue
 spec:
-  type: ClusterIP
+  type: ClusterIP                  # Accessible uniquement depuis le cluster
   ports:
     - name: http
-      port: 8080
-      targetPort: 8080
+      port: 8080                   # Port du Service
+      targetPort: 8080             # Port du conteneur WildFly
   selector:
-    app: service-catalogue
+    app: service-catalogue         # Route le trafic vers les pods correspondants

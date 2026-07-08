@@ -1,3 +1,12 @@
+# =============================================================================
+# Service headless — catalogue-db (MySQL)
+# =============================================================================
+#
+# Service headless (clusterIP: None) requis par le StatefulSet catalogue-db.
+# Fournit un DNS stable par pod : catalogue-db-0.catalogue-db.planification.svc
+# Port MySQL : 3306
+# =============================================================================
+
 apiVersion: v1
 kind: Service
 metadata:
@@ -13,4 +22,4 @@ spec:
       targetPort: 3306
   selector:
     app: catalogue-db
-  clusterIP: None
+  clusterIP: None                  # Headless — pas de load balancing, DNS direct vers les pods

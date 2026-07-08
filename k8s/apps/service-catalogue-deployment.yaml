@@ -1,3 +1,16 @@
+# =============================================================================
+# Deployment — service-catalogue (WildFly + WAR catalogue)
+# =============================================================================
+#
+# Déploie le microservice catalogue de cours sur le cluster K3s.
+# Image pré-construite : ump/service-catalogue:1.0.0 (voir k8s/scripts/build-images.sh)
+#
+# Stratégie de démarrage :
+#   1. initContainer wait-for-mysql : attend catalogue-db:3306
+#   2. Conteneur WildFly : configure datasource via ConfigMap + Secret
+#   3. Probes HTTP sur /api/cours (liveness + readiness)
+# =============================================================================
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,6 +28,7 @@ spec:
       labels:
         app: service-catalogue
     spec:
+      # Attend que MySQL soit accessible avant de lancer WildFly
       initContainers:
         - name: wait-for-mysql
           image: busybox:1.36
@@ -25,30 +39,37 @@ spec:
               echo "Attente MySQL catalogue-db:3306..."
               until nc -z catalogue-db 3306; do sleep 3; done
               echo "MySQL catalogue-db disponible."
+
       containers:
         - name: service-catalogue
           image: ump/service-catalogue:1.0.0
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: IfNotPresent    # Utilise l'image locale si disponible (K3s import)
           ports:
             - containerPort: 8080
               name: http
+          # Variables non sensibles depuis le ConfigMap
           envFrom:
             - configMapRef:
                 name: catalogue-app-config
+          # Mot de passe DB depuis le Secret (séparé du ConfigMap)
           env:
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: catalogue-db-secret
                   key: MYSQL_PASSWORD
+
+          # Probe de vivacité : redémarre le pod si l'API ne répond plus
           livenessProbe:
             httpGet:
               path: /api/cours
               port: 8080
-            initialDelaySeconds: 90
+            initialDelaySeconds: 90        # WildFly + déploiement WAR ~60-90s
             periodSeconds: 15
             timeoutSeconds: 5
             failureThreshold: 5
+
+          # Probe de disponibilité : retire le pod du Service si non prêt
           readinessProbe:
             httpGet:
               path: /api/cours
@@ -57,6 +78,7 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
+
           resources:
             requests:
               memory: "512Mi"

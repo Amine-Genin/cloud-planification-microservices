@@ -1,3 +1,16 @@
+# =============================================================================
+# Deployment — service-locaux (WildFly + WAR locaux)
+# =============================================================================
+#
+# Déploie le microservice gestion des locaux/salles sur le cluster K3s.
+# Image pré-construite : ump/service-locaux:1.0.0
+#
+# Stratégie de démarrage :
+#   1. initContainer wait-for-mysql : attend locaux-db:3306
+#   2. Conteneur WildFly : configure datasource via ConfigMap + Secret
+#   3. Probes HTTP sur /api/locaux
+# =============================================================================
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,6 +38,7 @@ spec:
               echo "Attente MySQL locaux-db:3306..."
               until nc -z locaux-db 3306; do sleep 3; done
               echo "MySQL locaux-db disponible."
+
       containers:
         - name: service-locaux
           image: ump/service-locaux:1.0.0
@@ -41,6 +55,7 @@ spec:
                 secretKeyRef:
                   name: locaux-db-secret
                   key: MYSQL_PASSWORD
+
           livenessProbe:
             httpGet:
               path: /api/locaux
@@ -49,6 +64,7 @@ spec:
             periodSeconds: 15
             timeoutSeconds: 5
             failureThreshold: 5
+
           readinessProbe:
             httpGet:
               path: /api/locaux
@@ -57,6 +73,7 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
+
           resources:
             requests:
               memory: "512Mi"

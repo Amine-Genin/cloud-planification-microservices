@@ -1,37 +1,60 @@
+# =============================================================================
+# Kustomization — Point d'entrée du déploiement Kubernetes (Phase 4)
+# Projet 2 — Planification & Logistique — UMP Oujda
+# =============================================================================
+#
+# Déploie l'ensemble de la stack dans le namespace "planification" :
+#   - 3 bases MySQL (StatefulSets + Services headless)
+#   - 3 microservices WildFly (Deployments + Services ClusterIP)
+#   - Ingress Traefik + Services NodePort (accès externe)
+#
+# Usage :
+#   kubectl apply -k k8s/
+#   kubectl get all -n planification
+#   ./k8s/scripts/deploy.sh
+# =============================================================================
+
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+# Toutes les ressources sont créées dans ce namespace isolé
 namespace: planification
 
 resources:
   - namespace.yaml
-  # Secrets (mots de passe MySQL)
+
+  # --- Secrets : mots de passe MySQL (root, user, database) -----------------
   - secrets/catalogue-db-secret.yaml
   - secrets/locaux-db-secret.yaml
   - secrets/emploi-db-secret.yaml
-  # ConfigMaps applicatifs
+
+  # --- ConfigMaps : variables d'environnement applicatives (sans secrets) ---
   - configmaps/catalogue-app-configmap.yaml
   - configmaps/locaux-app-configmap.yaml
   - configmaps/emploi-app-configmap.yaml
-  # Bases MySQL (StatefulSets + Services headless)
+
+  # --- Bases MySQL : StatefulSets (persistance PVC) + Services headless -----
   - databases/catalogue-db-service.yaml
   - databases/catalogue-db-statefulset.yaml
   - databases/locaux-db-service.yaml
   - databases/locaux-db-statefulset.yaml
   - databases/emploi-db-service.yaml
   - databases/emploi-db-statefulset.yaml
-  # Applications WildFly (Deployments + Services ClusterIP)
+
+  # --- Applications WildFly : Deployments + Services ClusterIP internes -------
   - apps/service-catalogue-service.yaml
   - apps/service-catalogue-deployment.yaml
   - apps/service-locaux-service.yaml
   - apps/service-locaux-deployment.yaml
   - apps/service-emploi-du-temps-service.yaml
   - apps/service-emploi-du-temps-deployment.yaml
-  # Routage HTTP
-  - ingress.yaml
-  - nodeport-services.yaml
 
-# init.sql montés dans les conteneurs MySQL (identique Docker Compose)
+  # --- Routage HTTP externe --------------------------------------------------
+  - ingress.yaml              # Ingress Traefik (host planification.local)
+  - nodeport-services.yaml    # NodePort 30081-30083 (accès direct sans Ingress)
+
+# Scripts SQL d'initialisation montés dans les conteneurs MySQL
+# (équivalent des init.sql Docker Compose, générés depuis k8s/init-scripts/)
 configMapGenerator:
   - name: catalogue-db-init
     files:

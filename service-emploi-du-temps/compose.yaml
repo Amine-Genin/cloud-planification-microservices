@@ -1,4 +1,18 @@
+# =============================================================================
+# service-emploi-du-temps — Stack Docker Compose (Phase 2)
+# Microservice : emplois du temps (REST /api/emploi-du-temps)
+# Dépend des services catalogue et locaux (appels HTTP inter-conteneurs)
+# =============================================================================
+#
+# Usage standalone :
+#   cd service-emploi-du-temps && docker compose up --build -d
+#   (nécessite catalogue + locaux sur le même réseau planification-net)
+#
+# Port hôte : 8083 → conteneur 8080 (WildFly)
+# =============================================================================
+
 services:
+  # --- Base de données MySQL -------------------------------------------------
   emploi-db:
     image: mysql:8.0
     container_name: emploi-db
@@ -9,6 +23,7 @@ services:
       MYSQL_PASSWORD: emploi_pass
     volumes:
       - emploi-data:/var/lib/mysql
+      # Pas de init.sql : la base emploi stocke les plannings générés dynamiquement
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
       interval: 10s
@@ -18,11 +33,12 @@ services:
     networks:
       - planification-net
 
+  # --- Application WildFly ---------------------------------------------------
   service-emploi-du-temps:
     build: .
     container_name: service-emploi-du-temps
     ports:
-      - "8083:8080"
+      - "8083:8080"               # API accessible sur http://localhost:8083/api/emploi-du-temps
     environment:
       DATASOURCE_NAME: EmploiDS
       DB_HOST: emploi-db
@@ -30,11 +46,13 @@ services:
       DB_NAME: emploi_db
       DB_USER: emploi_user
       DB_PASSWORD: emploi_pass
+      # URLs des microservices amont (résolution DNS interne Docker)
       CATALOGUE_BASE_URL: http://service-catalogue:8080
       LOCAUX_BASE_URL: http://service-locaux:8080
     depends_on:
       emploi-db:
         condition: service_healthy
+      # Note : depends_on catalogue/locaux défini dans compose.yaml racine
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/emploi-du-temps"]
       interval: 15s
